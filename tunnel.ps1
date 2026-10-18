@@ -52,20 +52,63 @@ Remove-Item $cfLog, $appLog -ErrorAction SilentlyContinue
 # 1. Web app with password, listening on 127.0.0.1 only (password passed via env, not command line)
 $env:VG_PUBLIC_USER = $User
 $env:VG_PUBLIC_PASSWORD = $Password
+function Stop-App {
+    # .venv\Scripts\python.exe is a launcher: the real server is its child, so stop by command line
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object { $_.CommandLine -match "serve_public\.py" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# Ready = OUR server answers: 401 with realm "VisionGate" (no password sent on purpose), so another
+# program on the same port is not mistaken for the app.
+# Direct request with no proxy: Invoke-WebRequest in 5.1 may send 127.0.0.1 to a corporate proxy.
+function Test-AppReady([int]$p) {
+    try {
+        $req = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$p/api/health")
+        $req.Proxy = $null
+        $req.Timeout = 3000
+        $req.GetResponse().Close()
+        return $false  # 200 without a password: not our protected app
+    } catch {
+        $e = $_.Exception
+        while ($e -and -not ($e -is [System.Net.WebException])) { $e = $e.InnerException }  # PS wraps it
+        if (-not $e -or -not $e.Response) { return $false }  # connection refused / timeout: still starting
+        $resp = $e.Response
+        $ok = ([int]$resp.StatusCode -eq 401) -and ("$($resp.Headers['WWW-Authenticate'])" -match "VisionGate")
+        $resp.Close()
+        return $ok
+    }
+}
+
+Stop-App  # leftovers of a previous run would hold the port
 $app = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "tools\serve_public.py", "--port", "$Port" `
     -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err" -WindowStyle Hidden -PassThru
 Remove-Item Env:\VG_PUBLIC_PASSWORD
+$waitSec = 90  # first start loads OCR models; on a cold laptop this can take tens of seconds
 $up = $false
-for ($i = 0; $i -lt 60 -and -not $up; $i++) {
-    Start-Sleep -Seconds 1
-    try { Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 2 | Out-Null; $up = $true }
-    catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 401) { $up = $true } }
+Write-Host -NoNewline "Starting the app (up to $waitSec s) "
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+while (-not $up -and $sw.Elapsed.TotalSeconds -lt $waitSec) {
+    if ($app.HasExited) { break }  # crashed: no point waiting
+    if (Test-AppReady $Port) { $up = $true; break }
+    Write-Host -NoNewline "."
+    Start-Sleep -Seconds 2
 }
+Write-Host ""
 if (-not $up) {
-    Write-Host "The app did not start, see $appLog.err" -ForegroundColor Red
-    Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+    $why = if ($app.HasExited) { "the app exited" } else { "no answer in $waitSec s" }
+    Write-Host "The app did not start ($why). Last lines of $appLog.err :" -ForegroundColor Red
+    if (Test-Path "$appLog.err") {
+        $tail = Get-Content "$appLog.err" -Tail 15 -Encoding UTF8
+        $tail
+        if ($tail -match "10048|address already in use") {
+            Write-Host "Port $Port is busy (another program or a running run.ps1). Close it or use: .\tunnel.ps1 -Port 8001" -ForegroundColor Yellow
+        }
+    }
+    Stop-App
     exit 1
 }
+Write-Host ("App is ready in {0:N0} s." -f $sw.Elapsed.TotalSeconds)
 
 # 2. Cloudflare Quick Tunnel -> random https://<words>.trycloudflare.com
 $tunnel = Start-Process -FilePath $cf.Source -ArgumentList "tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:$Port" `
@@ -91,8 +134,6 @@ try {
     Wait-Process -Id $tunnel.Id
 } finally {
     Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue
-    Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.CommandLine -match "serve_public\.py" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-App
     Write-Host "Tunnel and app stopped."
 }
