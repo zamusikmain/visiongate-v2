@@ -38,7 +38,7 @@ def _loop():
         try:
             _process(sid)
         except Exception as e:
-            log.exception("VLM-проверка заявки %s упала", sid)
+            log.exception("VLM check failed for submission %s", sid)
             rec = db.get(sid) or {}
             res = rec.get("result") or {}
             res["final"] = {"status": "REVIEW", "reasons": [],

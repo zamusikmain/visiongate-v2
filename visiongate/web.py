@@ -112,7 +112,7 @@ async def create_submission(imei_value: str = Form(..., alias="imei"), device: U
     try:
         res = await run_in_threadpool(work)
     except Exception as e:
-        log.exception("быстрая проверка упала")
+        log.exception("fast check failed")
         db.update(sid, status="REVIEW", phase="final", device_file=names["device"], scan_file=names["scan"],
                   result={"final": {"status": "REVIEW", "reasons": [],
                                     "message": f"Ошибка автоматической проверки ({type(e).__name__}) — нужна проверка человеком."}})

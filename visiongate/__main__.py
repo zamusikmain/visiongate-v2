@@ -11,7 +11,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=None)
-    p.add_argument("--http", action="store_true", help="без HTTPS (камера на телефоне работать не будет)")
+    p.add_argument("--http", action="store_true", help="plain HTTP (the phone camera will not work)")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ensure_dirs()

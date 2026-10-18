@@ -51,5 +51,6 @@ def ensure_cert(folder: Path) -> tuple[Path, Path]:
     key.write_bytes(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
                                     serialization.NoEncryption()))
     cert.write_bytes(c.public_bytes(serialization.Encoding.PEM))
-    print("HTTPS: сертификат создан для", ", ".join(sorted(ips)))
+    # консольные сообщения — по-английски: консоль Windows PowerShell 5.1 искажает кириллицу
+    print("HTTPS: self-signed certificate created for", ", ".join(sorted(ips)))
     return cert, key
