@@ -1,45 +1,25 @@
 // Живая камера на странице: превью, шаблон-подсказка, «Снять» / «Переснять», переключение камер.
 // Шаблон (SVG) лежит поверх видео и в снимок не попадает: кадр берётся из видеопотока / ImageCapture.
 const VGCamera = (() => {
+  // Уголки-ориентиры (как в сканерах документов). Пропорции фиксированы viewBox + meet, поэтому
+  // в горизонтальном и вертикальном кадре рамка одинаковой формы; отступ от краёв кадра ~12% (fitOverlay).
+  const corners = (w, h, a) =>
+    `<g class="ov-corner"><path d="M0 ${a} V0 H${a}"/><path d="M${w - a} 0 H${w} V${a}"/>` +
+    `<path d="M${w} ${h - a} V${h} H${w - a}"/><path d="M${a} ${h} H0 V${h - a}"/></g>`;
   const OVERLAYS = {
-    // Коробка горизонтально, снята сверху под небольшим углом: большая крышка с «Galaxy …»
-    // (~77% высоты контура, лёгкая перспектива — дальний край уже) и под ней узкая боковая грань
-    // (~23%), почти всю ширину которой занимает этикетка со штрихкодами
+    // Фото коробки: рамка 4:3, сверху подпись про верх коробки, внизу узкая зона под этикетку
     device: `
-      <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <g class="ov-line">
-          <polygon points="18,22 82,22 90,62 10,62" class="ov-face"/>
-          <polygon points="10,62 90,62 90,74 10,74" class="ov-face ov-dim"/>
-          <rect x="12" y="63.4" width="76" height="9.2" rx=".6" class="ov-label"/>
-        </g>
-        <g class="ov-bars">
-          ${[[14, 40], [44, 66], [70, 86]].map(([a, b]) =>
-            Array.from({ length: Math.floor((b - a) / 1.1) + 1 }, (_, i) => {
-              const x = (a + i * 1.1).toFixed(1);
-              return `<line x1="${x}" y1="64.6" x2="${x}" y2="${i % 3 ? 67.4 : 67.9}"/>` +
-                     `<line x1="${x}" y1="68.8" x2="${x}" y2="${i % 4 ? 71.4 : 71.8}"/>`;
-            }).join("")).join("")}
-        </g>
-        <text x="24" y="38" class="ov-text">Galaxy …</text>
-        <text x="50" y="14" class="ov-caption" data-k="ov_device_top"></text>
-        <text x="50" y="84" class="ov-caption" data-k="ov_device_label"></text>
+      <svg viewBox="-2 -2 164 124" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        ${corners(160, 120, 18)}
+        <text x="80" y="16" class="ov-caption" font-size="6.5" data-k="ov_device_top"></text>
+        <rect x="10" y="92" width="140" height="18" rx="2" class="ov-zone"/>
+        <text x="80" y="103.5" class="ov-caption" font-size="6" data-k="ov_device_label"></text>
       </svg>`,
-    // Скан: рамка, в которую целиком помещается блок IMEI1/IMEI2 со штрихкодами
+    // Скан этикетки: рамка 2:1, этикетка с блоком IMEI1/IMEI2 должна целиком поместиться внутри
     scan: `
-      <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <rect x="8" y="32" width="84" height="36" rx="2" class="ov-label"/>
-        <g class="ov-corner">
-          <path d="M8 40 V32 H18"/><path d="M82 32 H92 V40"/><path d="M92 60 V68 H82"/><path d="M18 68 H8 V60"/>
-        </g>
-        <g class="ov-bars">
-          ${Array.from({ length: 22 }, (_, i) => `<line x1="${14 + i * 1.5}" y1="40" x2="${14 + i * 1.5}" y2="${i % 3 ? 47 : 48}"/>`).join("")}
-          ${Array.from({ length: 22 }, (_, i) => `<line x1="${54 + i * 1.5}" y1="40" x2="${54 + i * 1.5}" y2="${i % 4 ? 47 : 48}"/>`).join("")}
-          ${Array.from({ length: 22 }, (_, i) => `<line x1="${14 + i * 1.5}" y1="54" x2="${14 + i * 1.5}" y2="${i % 3 ? 61 : 62}"/>`).join("")}
-          ${Array.from({ length: 22 }, (_, i) => `<line x1="${54 + i * 1.5}" y1="54" x2="${54 + i * 1.5}" y2="${i % 4 ? 61 : 62}"/>`).join("")}
-        </g>
-        <text x="14" y="51.5" class="ov-small">IMEI1</text><text x="54" y="51.5" class="ov-small">IMEI2</text>
-        <text x="14" y="65.5" class="ov-small">IMEI1</text><text x="54" y="65.5" class="ov-small">IMEI2</text>
-        <text x="50" y="24" class="ov-caption" data-k="ov_scan"></text>
+      <svg viewBox="-2 -2 164 84" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        ${corners(160, 80, 16)}
+        <text x="80" y="43" class="ov-caption" font-size="5.6" data-k="ov_scan"></text>
       </svg>`,
   };
 
@@ -107,7 +87,8 @@ const VGCamera = (() => {
     const cw = stage.clientWidth, ch = stage.clientHeight;
     const k = Math.min(cw / v.videoWidth, ch / v.videoHeight);
     const w = v.videoWidth * k, h = v.videoHeight * k;
-    Object.assign(ov.style, { left: `${(cw - w) / 2}px`, top: `${(ch - h) / 2}px`, width: `${w}px`, height: `${h}px` });
+    Object.assign(ov.style, { left: `${(cw - w) / 2}px`, top: `${(ch - h) / 2}px`, width: `${w}px`, height: `${h}px`,
+      padding: `${h * 0.12}px ${w * 0.12}px` });  // отступ ~12% от каждой стороны кадра
   }
   window.addEventListener("resize", fitOverlay);
 

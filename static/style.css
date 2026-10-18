@@ -72,20 +72,14 @@ button.bad { border-color: var(--bad); color: var(--bad); }
 #cam .cam-stage { position: relative; flex: 1; min-height: 0; }
 #cam video, #cam #camShot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 #camOverlay { position: absolute; inset: 0; pointer-events: none; display: flex; overflow: hidden; }
-#camOverlay svg { width: 100%; height: 100%; }
-#camOverlay .ov-face { fill: rgba(255,255,255,.06); }
-#camOverlay .ov-dim { fill: rgba(255,255,255,.02); }
-#camOverlay .ov-line polygon, #camOverlay .ov-label, #camOverlay .ov-corner path {
-  stroke: #fff; stroke-width: .5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-#camOverlay .ov-line polygon { stroke-dasharray: 2 1.2; }
-#camOverlay .ov-label { fill: rgba(255,255,255,.12); stroke-width: .7; }
-#camOverlay .ov-corner path { fill: none; stroke-width: 1.6; stroke: #7fb0ff; }
-#camOverlay .ov-bars line { stroke: rgba(255,255,255,.55); stroke-width: .5; }
-#camOverlay .ov-text { fill: rgba(255,255,255,.75); font: 600 5px system-ui, sans-serif; }
-#camOverlay .ov-small { fill: rgba(255,255,255,.7); font: 2.4px ui-monospace, monospace; }
-#camOverlay .ov-caption { fill: #fff; font: 600 3.2px system-ui, sans-serif; text-anchor: middle;
-  paint-order: stroke; stroke: rgba(0,0,0,.65); stroke-width: .8px; }
-#camOverlay svg * { filter: drop-shadow(0 0 .4px rgba(0,0,0,.9)); }
+#camOverlay svg { width: 100%; height: 100%; overflow: visible; }
+/* тонкие полупрозрачные линии: не мешают видеть коробку */
+#camOverlay .ov-corner path { fill: none; stroke: rgba(255,255,255,.75); stroke-width: 2px; stroke-linecap: round;
+  stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+#camOverlay .ov-zone { fill: rgba(255,255,255,.06); stroke: rgba(255,255,255,.5); stroke-width: 1px;
+  stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+#camOverlay .ov-caption { fill: rgba(255,255,255,.9); font-family: system-ui, sans-serif; font-weight: 600;
+  text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 1.2px; }
 .cam-msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px;
   color: #fff; font-size: 17px; text-align: center; line-height: 1.5; }
 .cam-bar { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap;
