@@ -1,10 +1,15 @@
 # Локальная vision-модель для фоновой проверки «фото экрана».
 #   docker compose up -d
 #   docker exec vg-ollama ollama pull qwen2.5vl:3b
+# Явное имя проекта: иначе Compose берёт имя папки и может пересечься с другими проектами «visiongate».
+name: visiongate-v2
 services:
   ollama:
     image: ollama/ollama:latest
     container_name: vg-ollama
+    # стандартная сеть Docker: отдельная сеть проекта не нужна, а на машине с множеством проектов
+    # Docker может не найти для неё свободную подсеть
+    network_mode: bridge
     ports:
       - "127.0.0.1:11434:11434"   # только локально: наружу Ollama не публикуем
     volumes:
