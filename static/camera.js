@@ -2,27 +2,26 @@
 // Шаблон (SVG) лежит поверх видео и в снимок не попадает: кадр берётся из видеопотока / ImageCapture.
 const VGCamera = (() => {
   const OVERLAYS = {
-    // Коробка под углом: верхняя грань с названием модели + длинная боковая грань с этикеткой
+    // Коробка горизонтально, снята сверху под небольшим углом: большая крышка с «Galaxy …»
+    // (~77% высоты контура, лёгкая перспектива — дальний край уже) и под ней узкая боковая грань
+    // (~23%), почти всю ширину которой занимает этикетка со штрихкодами
     device: `
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
         <g class="ov-line">
-          <polygon points="16,34 66,24 84,40 34,51" class="ov-face"/>
-          <polygon points="34,51 84,40 84,58 34,70" class="ov-face"/>
-          <polygon points="16,34 34,51 34,70 16,52" class="ov-face ov-dim"/>
-          <polygon points="42,55.5 79,47.4 79,56.5 42,64.7" class="ov-label"/>
+          <polygon points="18,22 82,22 90,62 10,62" class="ov-face"/>
+          <polygon points="10,62 90,62 90,74 10,74" class="ov-face ov-dim"/>
+          <rect x="12" y="63.4" width="76" height="9.2" rx=".6" class="ov-label"/>
         </g>
         <g class="ov-bars">
-          ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => {
-            const x = 45 + i * 1.6, y = 56.6 - i * 0.35;
-            return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 3}"/>`;
-          }).join("")}
-          ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => {
-            const x = 45 + i * 1.6, y = 60.4 - i * 0.35;
-            return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 2.4}"/>`;
-          }).join("")}
+          ${[[14, 40], [44, 66], [70, 86]].map(([a, b]) =>
+            Array.from({ length: Math.floor((b - a) / 1.1) + 1 }, (_, i) => {
+              const x = (a + i * 1.1).toFixed(1);
+              return `<line x1="${x}" y1="64.6" x2="${x}" y2="${i % 3 ? 67.4 : 67.9}"/>` +
+                     `<line x1="${x}" y1="68.8" x2="${x}" y2="${i % 4 ? 71.4 : 71.8}"/>`;
+            }).join("")).join("")}
         </g>
-        <text x="30" y="40" class="ov-text" transform="rotate(-11 30 40)">Galaxy …</text>
-        <text x="50" y="12" class="ov-caption" data-k="ov_device_top"></text>
+        <text x="24" y="38" class="ov-text">Galaxy …</text>
+        <text x="50" y="14" class="ov-caption" data-k="ov_device_top"></text>
         <text x="50" y="84" class="ov-caption" data-k="ov_device_label"></text>
       </svg>`,
     // Скан: рамка, в которую целиком помещается блок IMEI1/IMEI2 со штрихкодами
