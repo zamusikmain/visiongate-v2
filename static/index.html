@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main>
+  <h1 data-i18n="title_register"></h1>
+  <form id="form" novalidate>
+    <div class="card">
+      <label for="imei" data-i18n="imei_label"></label>
+      <input id="imei" class="imei" type="text" inputmode="numeric" autocomplete="off" maxlength="17" placeholder="35xxxxxxxxxxxxx">
+      <div id="imeiCheck" class="check"></div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" id="scanBtn" data-i18n="scan_btn"></button>
+      </div>
+      <p class="hint" data-i18n="imei_hint"></p>
+    </div>
+
+    <div class="card" data-slot="device">
+      <h2 data-i18n="slot1_title"></h2>
+      <p class="hint" data-i18n="slot1_hint"></p>
+      <div class="row" style="margin-top:10px">
+        <label class="btn"><span data-i18n="take_photo"></span><input type="file" accept="image/*" capture="environment" hidden></label>
+        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" hidden></label>
+      </div>
+      <img class="slot-preview" alt="">
+      <div class="check"></div>
+    </div>
+
+    <div class="card" data-slot="scan">
+      <h2 data-i18n="slot2_title"></h2>
+      <p class="hint" data-i18n="slot2_hint"></p>
+      <div class="row" style="margin-top:10px">
+        <label class="btn"><span data-i18n="take_photo"></span><input type="file" accept="image/*" capture="environment" hidden></label>
+        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" hidden></label>
+      </div>
+      <img class="slot-preview" alt="">
+      <div class="check"></div>
+    </div>
+
+    <button type="submit" class="primary" id="submit" data-i18n="submit"></button>
+    <p id="status" class="hint" style="text-align:center;margin-top:10px"></p>
+  </form>
+</main>
+
+<div id="scanner">
+  <video id="video" playsinline muted></video>
+  <div class="frame"></div>
+  <div class="bar"><span id="scanMsg"></span><button type="button" id="scanClose" data-i18n="close"></button></div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>VG.header("/"); VG.applyI18n();</script>
+<script src="/static/vendor/zxing-wasm/zxing-reader.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

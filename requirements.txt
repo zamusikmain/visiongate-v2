@@ -1,0 +1,12 @@
+fastapi==0.146.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+rapidocr-onnxruntime==1.2.3
+onnxruntime==1.31.0
+zxing-cpp==3.1.1
+opencv-python-headless==5.0.0.93
+pillow==13.0.0
+numpy==2.5.4
+openpyxl==3.1.5
+cryptography==50.0.2
+# Опционально, только если ИБ разрешит внешний API: anthropic

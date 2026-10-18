@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate — Settings</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main>
+  <h1 data-i18n="set_title"></h1>
+  <div class="card" id="health"><span class="spinner"></span></div>
+  <form id="f" class="card">
+    <h2 data-i18n="set_vlm"></h2>
+    <label for="vlm_provider" data-i18n="set_model"></label>
+    <select id="vlm_provider">
+      <option value="ollama" data-i18n="set_local"></option>
+      <option value="anthropic" data-i18n="set_ext"></option>
+      <option value="off" data-i18n="set_off"></option>
+    </select>
+    <p class="hint" data-i18n="set_local_hint"></p>
+    <label style="margin-top:12px"><input type="checkbox" id="vlm_for_rejected"> <span data-i18n="set_for_rejected"></span></label>
+    <label><input type="checkbox" id="require_screen_check"> <span data-i18n="set_require"></span></label>
+    <label for="ollama_url" style="margin-top:12px" data-i18n="set_ollama_url"></label><input type="text" id="ollama_url">
+    <label for="ollama_model" style="margin-top:12px" data-i18n="set_ollama_model"></label><input type="text" id="ollama_model">
+    <label for="ollama_num_thread" style="margin-top:12px" data-i18n="set_threads"></label><input type="text" id="ollama_num_thread" inputmode="numeric">
+    <p class="hint" data-i18n="set_threads_hint"></p>
+    <h2 style="margin-top:18px" data-i18n="set_ext_title"></h2>
+    <p class="hint" data-i18n="set_ext_hint"></p>
+    <label><input type="checkbox" id="external_allowed"> <span data-i18n="set_ext_allowed"></span></label>
+    <label for="anthropic_model" style="margin-top:12px" data-i18n="set_model"></label><input type="text" id="anthropic_model">
+    <button type="submit" class="primary" style="margin-top:16px" data-i18n="save"></button>
+    <p id="msg" class="hint"></p>
+  </form>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/settings");
+VG.applyI18n();
+const fields = ["vlm_provider", "vlm_for_rejected", "require_screen_check", "ollama_url", "ollama_model", "ollama_num_thread", "external_allowed", "anthropic_model"];
+async function load() {
+  const s = await VG.json("/api/settings");
+  fields.forEach(k => { const el = document.getElementById(k); el.type === "checkbox" ? el.checked = s[k] : el.value = s[k]; });
+  const h = await VG.json("/api/health");
+  const o = h.ollama;
+  document.querySelector("#health").innerHTML = `<b>${VG.t("state")}:</b> ${VG.t("queue_len")} — ${h.queue}. ` +
+    (o ? (o.ok ? VG.t("ollama_ok") : `<span class="err">Ollama: ${VG.esc(o.error || VG.t("ollama_missing"))}</span>`) : `VLM: ${h.vlm_provider}`);
+}
+document.querySelector("#f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = {};
+  fields.forEach(k => { const el = document.getElementById(k); body[k] = el.type === "checkbox" ? el.checked : el.value; });
+  try { await VG.json("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    document.querySelector("#msg").textContent = VG.t("saved"); load(); }
+  catch (err) { document.querySelector("#msg").innerHTML = `<span class="err">${VG.esc(err.message)}</span>`; }
+});
+load();
+</script>
+</body>
+</html>

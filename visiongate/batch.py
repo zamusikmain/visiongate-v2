@@ -1,0 +1,240 @@
+"""Пакетная проверка: ZIP с парами device/scan → таблица результатов → XLSX.
+Фото читаются из архива в памяти (без распаковки на диск), архив удаляется после обработки."""
+import io
+import json
+import logging
+import re
+import threading
+import time
+import uuid
+import zipfile
+from pathlib import PurePosixPath
+
+from . import decision, imei, pipeline, validation
+from .config import BATCHES, load_settings
+
+log = logging.getLogger("visiongate.batch")
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+MAX_ZIP = 500 * 1024 * 1024
+MAX_UNPACKED = 2 * 1024 ** 3
+MAX_FILE = 25 * 1024 * 1024
+MAX_PAIRS = 300
+
+_jobs: dict[str, dict] = {}
+_lock = threading.Lock()
+
+
+class BatchError(ValueError):
+    pass
+
+
+def _role(name: str) -> str | None:
+    n = name.lower()
+    if n.startswith("device") or n.startswith("box"):
+        return "device"
+    if n.startswith("scan") or n.startswith("label"):
+        return "scan"
+    return None
+
+
+def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
+    """Возвращает (пары, эталон, предупреждения). Пара: {key, folder, imei, device, scan} (имена в архиве)."""
+    if len(data) > MAX_ZIP:
+        raise BatchError("ZIP больше 500 МБ")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise BatchError("Файл не является ZIP-архивом")
+    infos = [i for i in zf.infolist() if not i.is_dir() and "__MACOSX" not in i.filename]
+    if sum(i.file_size for i in infos) > MAX_UNPACKED:
+        raise BatchError("Распакованный размер архива больше 2 ГБ")
+    groups: dict[tuple, dict] = {}
+    truth, warnings = {}, []
+    for i in infos:
+        p = PurePosixPath(i.filename.replace("\\", "/"))
+        if p.name.lower() == "validation.xlsx":
+            try:
+                truth = validation.read(zf.read(i))
+            except Exception as e:
+                warnings.append(f"VALIDATION.xlsx не прочитан: {e}")
+            continue
+        if p.suffix.lower() not in IMAGE_EXT:
+            continue
+        role = _role(p.name)
+        if not role:
+            warnings.append(f"Пропущен {i.filename}: имя должно начинаться с device_ или scan_")
+            continue
+        if i.file_size > MAX_FILE:
+            warnings.append(f"Пропущен {i.filename}: больше 25 МБ")
+            continue
+        m = re.search(r"\d{15}", p.stem) or re.search(r"\d{15}", p.parent.name)
+        key = (str(p.parent), m.group(0) if m else "")
+        g = groups.setdefault(key, {"folder": str(p.parent), "imei": key[1]})
+        if role in g:
+            warnings.append(f"В папке {p.parent} несколько файлов {role}: взят {g[role]}")
+            continue
+        g[role] = i.filename
+    pairs = []
+    for (folder, im), g in sorted(groups.items()):
+        if "device" not in g or "scan" not in g:
+            warnings.append(f"{folder or '/'} {im}: нет пары device/scan")
+            continue
+        pairs.append(dict(g, key=f"{folder}/{im}"))
+    if not pairs:
+        raise BatchError("В архиве не найдено ни одной пары device_*/scan_*")
+    if len(pairs) > MAX_PAIRS:
+        raise BatchError(f"Слишком много пар ({len(pairs)}), максимум {MAX_PAIRS}")
+    return pairs, truth, warnings
+
+
+def _row(pair, res, truth, error=None) -> dict:
+    t = truth.get(pair["imei"]) if truth else None
+    row = {"folder": pair["folder"], "imei": pair["imei"], "error": error, "truth": t}
+    if res:
+        f = res["final"]
+        row.update(status=f["status"], reasons=f["reasons"], message=f["message"], message_en=f.get("message_en", ""),
+                   fast_seconds=res.get("fast_seconds"), vlm_seconds=res.get("vlm_seconds"),
+                   vlm_cached=all((res.get("vlm") or {}).get(s, {}).get("cached") for s in pipeline.SLOTS)
+                   if res.get("vlm") else None,
+                   slots={s: {k: res["slots"][s].get(k) for k in ("status", "reason", "message", "message_en",
+                                                                   "read_imeis", "barcode_imeis")}
+                          for s in pipeline.SLOTS})
+    else:
+        row.update(status="ERROR", reasons=[], message=error, message_en=error, slots={})
+    if t:
+        ok_pred = row["status"] in ("APPROVED", "PRELIMINARY")
+        row["agree"] = None if row["status"] in ("REVIEW", "ERROR") else \
+            (ok_pred == (t["final"] == "APPROVED"))
+    return row
+
+
+def _save(job):
+    (BATCHES / f"{job['id']}.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+
+
+def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool):
+    job = _jobs[job_id]
+    settings = dict(load_settings())
+    if not use_vlm:
+        settings["vlm_provider"] = "off"
+        settings["require_screen_check"] = False  # без VLM показываем «предварительно одобрено», а не «на ручную»
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    for pair in pairs:
+        try:
+            raw = {s: zf.read(pair[s]) for s in pipeline.SLOTS}
+            if not pair["imei"]:
+                raise BatchError("IMEI не найден в имени файла или папки")
+            imgs = {s: pipeline.load(raw[s]) for s in pipeline.SLOTS}
+            res = pipeline.fast_check(imgs, pair["imei"], settings)
+            if res["needs_vlm"]:
+                job["stage"] = f"VLM: {pair['imei']}"
+                res = pipeline.vlm_check(imgs, res, settings, raw=raw)
+            if not use_vlm and res["final"]["status"] == "APPROVED":
+                res["final"]["status"] = "PRELIMINARY"  # проверка экрана не выполнялась
+            row = _row(pair, res, truth)
+        except Exception as e:
+            log.exception("batch %s: %s", job_id, pair["key"])
+            row = _row(pair, None, truth, error=str(e)[:300])
+        with _lock:
+            job["rows"].append(row)
+            job["done"] += 1
+            job["stage"] = ""
+        _save(job)
+    job["state"] = "done"
+    job["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _save(job)
+
+
+def start(data: bytes, filename: str, use_vlm: bool) -> dict:
+    pairs, truth, warnings = parse_zip(data)
+    job_id = uuid.uuid4().hex[:10]
+    job = {"id": job_id, "filename": filename, "state": "running", "total": len(pairs), "done": 0, "stage": "",
+           "use_vlm": use_vlm, "has_truth": bool(truth), "warnings": warnings, "rows": [],
+           "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    _jobs[job_id] = job
+    BATCHES.mkdir(parents=True, exist_ok=True)
+    _save(job)
+    threading.Thread(target=_run, args=(job_id, data, pairs, truth, use_vlm), daemon=True,
+                     name=f"batch-{job_id}").start()
+    return job
+
+
+def get(job_id: str) -> dict | None:
+    if not re.fullmatch(r"[0-9a-f]{10}", job_id or ""):
+        return None
+    if job_id in _jobs:
+        return _jobs[job_id]
+    p = BATCHES / f"{job_id}.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+# --- XLSX ---
+_FILL = {"APPROVED": "E5F5EA", "PRELIMINARY": "E5F5EA", "REJECTED": "FDECEA", "REVIEW": "FDF3E1", "ERROR": "EEEEEE"}
+_HDR = {
+    "ru": ["Папка", "IMEI", "Итог", "Причины", "Пояснение", "Фото коробки", "Скан этикетки",
+           "IMEI на фото коробки", "IMEI на скане", "Быстрая фаза, с", "VLM, с", "Эталон", "Совпало с эталоном"],
+    "en": ["Folder", "IMEI", "Result", "Reasons", "Explanation", "Box photo", "Label scan",
+           "IMEI on box photo", "IMEI on scan", "Fast phase, s", "VLM, s", "Reference", "Matches reference"],
+}
+
+
+def to_xlsx(job: dict, lang: str = "ru") -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    li = 1 if lang == "en" else 0
+    slot_st = {"ok": ("OK", "OK"), "review": ("На ручную", "Review"), "reject": ("Отклонено", "Rejected")}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Results" if li else "Результаты"
+    ws.append(_HDR["en" if li else "ru"])
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for r in job["rows"]:
+        def slot(s):
+            d = r["slots"].get(s) or {}
+            if not d:
+                return ""
+            st = slot_st.get(d["status"], (d["status"],) * 2)[li]
+            return f"{st}{' — ' + d['reason'] if d.get('reason') else ''}"
+        t = r.get("truth")
+        status = decision.STATUS.get(r["status"], (r["status"], r["status"]))[li] if r["status"] != "ERROR" else "ERROR"
+        ws.append([r["folder"], r["imei"], status, ", ".join(r.get("reasons") or []),
+                   r.get("message_en" if li else "message") or "", slot("device"), slot("scan"),
+                   ", ".join((r["slots"].get("device") or {}).get("read_imeis") or []),
+                   ", ".join((r["slots"].get("scan") or {}).get("read_imeis") or []),
+                   r.get("fast_seconds"), r.get("vlm_seconds"),
+                   f"{t['final']} ({t['device']} / {t['scan']})" if t else "",
+                   "" if r.get("agree") is None else (("yes" if li else "да") if r["agree"] else ("no" if li else "нет"))])
+        ws.cell(ws.max_row, 3).fill = PatternFill("solid", fgColor=_FILL.get(r["status"], "FFFFFF"))
+    widths = [28, 18, 22, 30, 70, 30, 30, 34, 34, 12, 10, 40, 12]
+    for i, w in enumerate(widths):
+        ws.column_dimensions[chr(65 + i)].width = w
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.freeze_panes = "A2"
+    # сводка
+    s = wb.create_sheet("Summary" if li else "Сводка")
+    from collections import Counter
+    cnt = Counter(r["status"] for r in job["rows"])
+    s.append(["File" if li else "Файл", job["filename"]])
+    s.append(["Pairs" if li else "Пар", job["total"]])
+    for k in ("APPROVED", "PRELIMINARY", "REVIEW", "REJECTED", "ERROR"):
+        if cnt.get(k):
+            s.append([decision.STATUS.get(k, (k, k))[li], cnt[k]])
+    if job.get("has_truth"):
+        agree = [r["agree"] for r in job["rows"] if r.get("agree") is not None]
+        s.append([])
+        s.append(["Auto decisions matching reference" if li else "Авто-решений совпало с эталоном",
+                  f"{sum(agree)} / {len(agree)}"])
+        s.append(["False approvals" if li else "Ложных одобрений",
+                  sum(1 for r in job["rows"] if r.get("truth") and r["truth"]["final"] == "REJECTED"
+                      and r["status"] in ("APPROVED", "PRELIMINARY"))])
+        s.append(["False rejections" if li else "Ложных отказов",
+                  sum(1 for r in job["rows"] if r.get("truth") and r["truth"]["final"] == "APPROVED"
+                      and r["status"] == "REJECTED")])
+    s.column_dimensions["A"].width = 36
+    s.column_dimensions["B"].width = 40
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

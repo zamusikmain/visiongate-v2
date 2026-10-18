@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate — Batch</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <h1 data-i18n="batch_title"></h1>
+  <form id="f" class="card">
+    <p class="hint" data-i18n="batch_hint"></p>
+    <label for="zip" style="margin-top:12px" data-i18n="batch_file"></label>
+    <input id="zip" type="file" accept=".zip,application/zip">
+    <label style="margin-top:12px;font-weight:400"><input type="checkbox" id="vlm" checked> <span data-i18n="batch_vlm"></span></label>
+    <button type="submit" class="primary" id="go" style="margin-top:12px" data-i18n="batch_start"></button>
+    <p id="msg" class="hint"></p>
+  </form>
+  <div id="out"></div>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/batch");
+VG.applyI18n();
+let jobId = new URLSearchParams(location.search).get("id");
+
+document.querySelector("#f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = document.querySelector("#zip").files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("use_vlm", document.querySelector("#vlm").checked);
+  document.querySelector("#go").disabled = true;
+  document.querySelector("#msg").innerHTML = `<span class="spinner"></span> ${VG.t("uploading")}`;
+  try {
+    const job = await VG.json("/api/batches", { method: "POST", body: fd });
+    jobId = job.id;
+    history.replaceState(null, "", `/batch?id=${jobId}`);
+    document.querySelector("#msg").textContent = "";
+    poll();
+  } catch (err) {
+    document.querySelector("#msg").innerHTML = `<span class="err">${VG.esc(err.message)}</span>`;
+    document.querySelector("#go").disabled = false;
+  }
+});
+
+function slotCell(r, s) {
+  const d = r.slots?.[s];
+  if (!d) return "";
+  return `${VG.badge(d.status, VG.slotStatus(d.status))}${d.reason ? `<br><small>${VG.esc(d.reason)}</small>` : ""}` +
+    `<br><small class="mono">${VG.esc((d.read_imeis || []).join(", ") || "—")}</small>`;
+}
+
+function render(job) {
+  const pct = Math.round(100 * job.done / job.total);
+  const running = job.state !== "done";
+  const rows = job.rows.map(r => {
+    const st = r.status === "ERROR" ? VG.t("error") : (statuses[r.status]?.[VG.lang] || r.status);
+    const agree = r.agree === undefined || r.agree === null ? "" : (r.agree ? "✓" : "✗");
+    const msg = VG.lang === "en" ? r.message_en : r.message;
+    return `<tr><td><small>${VG.esc(r.folder)}</small></td><td class="mono">${VG.esc(r.imei)}</td>
+      <td>${VG.badge(r.status, st)}<br><small>${VG.esc((r.reasons || []).join(", "))}</small><br><small>${VG.esc(msg || "")}</small></td>
+      <td>${slotCell(r, "device")}</td><td>${slotCell(r, "scan")}</td>
+      ${job.has_truth ? `<td><small>${r.truth ? VG.esc(`${r.truth.final} (${r.truth.device} / ${r.truth.scan})`) : "—"}</small></td>
+      <td class="${r.agree === false ? "err" : ""}">${agree}</td>` : ""}
+      <td><small>${r.fast_seconds ?? ""}${r.vlm_seconds ? ` + ${r.vlm_cached ? "cache" : r.vlm_seconds}` : ""}</small></td></tr>`;
+  }).join("");
+  let summary = "";
+  if (!running && job.has_truth) {
+    const a = job.rows.filter(r => r.agree !== null && r.agree !== undefined);
+    const fa = job.rows.filter(r => r.truth && r.truth.final === "REJECTED" && ["APPROVED", "PRELIMINARY"].includes(r.status)).length;
+    const fr = job.rows.filter(r => r.truth && r.truth.final === "APPROVED" && r.status === "REJECTED").length;
+    summary = `<p><b>${VG.t("summary")}:</b> ${VG.t("agree_count", { a: a.filter(r => r.agree).length, n: a.length })} · ` +
+      `${VG.t("false_app", { n: fa })} · ${VG.t("false_rej", { n: fr })}</p>`;
+  }
+  document.querySelector("#out").innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between"><b>${VG.esc(job.filename)}</b>
+      ${!running ? `<a class="btn" href="/api/batches/${job.id}/xlsx?lang=${VG.lang}">${VG.t("download_xlsx")}</a>` : ""}</div>
+    <div class="progress"><div style="width:${pct}%"></div></div>
+    <p class="hint">${running ? `<span class="spinner"></span> ` : ""}${VG.t("batch_progress", { done: job.done, total: job.total })}${job.stage ? " · " + VG.esc(job.stage) : ""}${!running ? " · " + VG.t("batch_done") : ""}</p>
+    ${summary}
+    ${job.warnings.length ? `<details><summary>${VG.t("warnings")} (${job.warnings.length})</summary><pre>${VG.esc(job.warnings.join("\n"))}</pre></details>` : ""}
+    <div style="overflow-x:auto"><table><thead><tr><th>${VG.t("col_folder")}</th><th>IMEI</th><th>${VG.t("col_result")}</th>
+      <th>${VG.t("slot_device")}</th><th>${VG.t("slot_scan")}</th>
+      ${job.has_truth ? `<th>${VG.t("col_truth")}</th><th>${VG.t("col_agree")}</th>` : ""}<th>${VG.t("col_time")}, ${VG.t("sec")}</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+  if (running) setTimeout(poll, 2000);
+}
+
+let statuses = {};
+async function poll() {
+  try { render(await VG.json(`/api/batches/${jobId}`)); }
+  catch (err) { document.querySelector("#out").innerHTML = `<p class="err">${VG.esc(err.message)}</p>`; }
+}
+VG.json("/api/health").then(h => { statuses = h.statuses; if (jobId) poll(); });
+</script>
+</body>
+</html>

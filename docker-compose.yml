@@ -1,0 +1,18 @@
+# Локальная vision-модель для фоновой проверки «фото экрана».
+#   docker compose up -d
+#   docker exec vg-ollama ollama pull qwen2.5vl:3b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vg-ollama
+    ports:
+      - "127.0.0.1:11434:11434"   # только локально: наружу Ollama не публикуем
+    volumes:
+      - vg-ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=60m
+    restart: unless-stopped
+
+volumes:
+  vg-ollama:
+    name: vg-ollama

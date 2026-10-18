@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate — Review</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <div class="tabs" id="tabs">
+    <button data-f="TODO" class="active" data-i18n="tab_todo"></button>
+    <button data-f="" data-i18n="tab_all"></button>
+    <button data-f="PRELIMINARY" data-i18n="tab_prelim"></button>
+    <button data-f="REVIEW" data-i18n="tab_review"></button>
+    <button data-f="REJECTED" data-i18n="rejected"></button>
+    <button data-f="APPROVED" data-i18n="approved"></button>
+  </div>
+  <div class="review-layout">
+    <div class="card" style="padding:8px"><table><thead><tr><th data-i18n="col_no"></th><th>IMEI</th>
+      <th data-i18n="col_status"></th><th data-i18n="col_time"></th></tr></thead>
+      <tbody id="list"></tbody></table></div>
+    <div id="detail"><div class="card hint" data-i18n="pick_left"></div></div>
+  </div>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/review");
+VG.applyI18n();
+let filter = "TODO", current = null, reasons = {};
+const yn = b => VG.t(b ? "yes" : "no");
+
+async function loadList() {
+  const rows = await VG.json(`/api/submissions?status=${filter}`);
+  document.querySelector("#list").innerHTML = rows.map(r => `
+    <tr data-id="${r.id}" class="${r.id === current ? "sel" : ""}">
+      <td>${r.id}</td><td class="mono">${VG.esc(r.imei)}</td>
+      <td>${VG.badge(r.status, VG.pick(r, "status"))}${r.manual_status ? `<br><small>${VG.t("manual")}: ${VG.t(r.manual_status === "APPROVED" ? "approved" : "rejected")}</small>` : ""}</td>
+      <td><small>${VG.esc(r.created_at.replace("T", " "))}</small></td></tr>`).join("") || `<tr><td colspan="4" class="hint">${VG.t("empty")}</td></tr>`;
+  document.querySelectorAll("#list tr[data-id]").forEach(tr => tr.onclick = () => show(+tr.dataset.id));
+}
+
+function evidenceBlock(slot, res) {
+  const ev = res?.evidence?.[slot]; const d = res?.slots?.[slot]; const v = res?.vlm?.[slot];
+  if (!ev || !d) return "";
+  const cands = ev.candidates.filter(c => c.luhn).map(c => `${c.digits}${c.has_token ? " (IMEI)" : ""}`);
+  const vlmTxt = v ? (v.ok ? `${VG.t("screen")}: <b>${yn(v.screen)}</b>, ${VG.t("box_top")}: ${v.box_top === null ? "?" : yn(v.box_top)}, ${v.seconds} ${VG.t("sec")}${v.cached ? " (cache)" : ""}`
+    : `<span class="err">${VG.esc(v.error)}</span>`) : VG.t("not_run");
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">${VG.slotName(slot)}</h2>${VG.badge(d.status, VG.slotStatus(d.status))}</div>
+    <p>${VG.esc(VG.pick(d, "message"))}${d.suspected ? ` <small>(${VG.t("suspicion")}: ${VG.esc(d.suspected)})</small>` : ""}</p>
+    <div class="photos"><a href="/api/submissions/${current}/photo/${slot}" target="_blank"><img src="/api/submissions/${current}/photo/${slot}" alt=""></a></div>
+    <dl class="kv" style="margin-top:10px">
+      <dt>${VG.t("ev_size")}</dt><dd>${ev.size.join("×")}</dd>
+      <dt>${VG.t("barcodes")}</dt><dd class="mono">${ev.barcodes.map(b => VG.esc(b.text) + " <small>" + b.format + "</small>").join("<br>") || "—"}</dd>
+      <dt>${VG.t("ev_text_imei")}</dt><dd class="mono">${cands.map(VG.esc).join("<br>") || "—"}</dd>
+      <dt>${VG.t("ev_imei_lines")}</dt><dd class="mono">${ev.imei_lines.map(l => VG.esc(l.text) + (l.touches_edge ? ` <b>[${VG.t("edge")}]</b>` : "")).join("<br>") || "—"}</dd>
+      <dt>${VG.t("ev_regions")}</dt><dd>${ev.barcode_regions.length}${ev.barcode_regions.some(r => r.touches_edge) ? ` (${VG.t("at_edge")})` : ""}</dd>
+      <dt>${VG.t("ev_words")}</dt><dd>${ev.label_words.join(", ") || "—"}</dd>
+      <dt>${VG.t("ev_ui")}</dt><dd>${ev.ui_hits.map(VG.esc).join(", ") || "—"}</dd>
+      <dt>${VG.t("ev_lum")}</dt><dd>${ev.luminance.mean.toFixed(0)}</dd>
+      <dt>${VG.t("ev_time")}</dt><dd>${VG.t("barcode")} ${ev.timing.barcode} ${VG.t("sec")}, OCR ${ev.timing.ocr} ${VG.t("sec")} (${ev.ocr_mode})</dd>
+      <dt>${VG.t("ev_vlm")}</dt><dd>${vlmTxt}</dd>
+    </dl>
+    <details><summary>${VG.t("all_ocr")}</summary><pre>${VG.esc(ev.ocr_lines.map(l => l.text).join("\n"))}</pre></details>
+  </div>`;
+}
+
+async function show(id) {
+  current = id;
+  document.querySelectorAll("#list tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.id === id));
+  const r = await VG.json(`/api/submissions/${id}?full=true`);
+  const opts = Object.entries(reasons).map(([k, v]) => `<option value="${k}">${k} — ${VG.esc(v[VG.lang].slice(0, 60))}</option>`).join("");
+  document.querySelector("#detail").innerHTML = `
+    <div class="card">
+      <h2>${VG.t("submission", { id: r.id })} · <span class="mono">${VG.esc(r.imei)}</span></h2>
+      <p>${VG.badge(r.status, VG.pick(r, "status"), true)}</p><p>${VG.esc(VG.pick(r, "message"))}</p>
+      ${r.client_barcode ? `<p class="hint">${VG.t("seller_scanned")}: <span class="mono">${VG.esc(r.client_barcode)}</span></p>` : ""}
+      <h2 style="margin-top:14px">${VG.t("reviewer_decision")}</h2>
+      <div class="row"><select id="reason"><option value="">${VG.t("reason_for_reject")}</option>${opts}</select></div>
+      <textarea id="comment" placeholder="${VG.t("comment")}" style="margin-top:8px">${VG.esc(r.manual_comment || "")}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="ok" onclick="decide('APPROVED')">${VG.t("approve")}</button>
+        <button class="bad" onclick="decide('REJECTED')">${VG.t("reject")}</button>
+        <span id="saveMsg" class="hint"></span></div>
+      ${r.manual_status ? `<p class="hint">${VG.t("already")}: ${r.manual_status}</p>` : ""}
+    </div>
+    <div class="grid2">${evidenceBlock("device", r.result)}${evidenceBlock("scan", r.result)}</div>`;
+}
+
+async function decide(status) {
+  const reason = document.querySelector("#reason").value;
+  try {
+    await VG.json(`/api/submissions/${current}/review`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, reason, comment: document.querySelector("#comment").value }) });
+    document.querySelector("#saveMsg").textContent = VG.t("saved");
+    loadList();
+  } catch (e) { document.querySelector("#saveMsg").innerHTML = `<span class="err">${VG.esc(e.message)}</span>`; }
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  filter = b.dataset.f;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x === b));
+  loadList();
+});
+VG.json("/api/health").then(h => { reasons = h.reasons; });
+loadList();
+setInterval(loadList, 10000);
+</script>
+</body>
+</html>

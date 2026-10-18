@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main>
+  <div id="root"><p><span class="spinner"></span> <span data-i18n="loading"></span></p></div>
+  <p><a class="btn" href="/" data-i18n="new_registration"></a></p>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("");
+VG.applyI18n();
+const sid = location.pathname.split("/").pop();
+
+function slotCard(slot, s) {
+  if (!s) return "";
+  const reads = s.read_imeis.length ? s.read_imeis.map(VG.esc).join(", ") : "—";
+  const bars = s.barcodes.length ? s.barcodes.map(VG.esc).join(", ") : VG.t("not_read");
+  const by = s.matched_by.map(x => VG.t(x)).join(", ");
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">${VG.slotName(slot)}</h2>
+      ${VG.badge(s.status, VG.slotStatus(s.status))}</div>
+    <p>${VG.esc(VG.pick(s, "message"))}</p>
+    <dl class="kv"><dt>${VG.t("recognised_imei")}</dt><dd class="mono">${reads}</dd>
+      <dt>${VG.t("barcodes")}</dt><dd class="mono">${bars}</dd>
+      <dt>${VG.t("match")}</dt><dd>${s.matched_by.length ? `${VG.t("yes")} (${by})` : VG.t("no")}</dd></dl>
+    <img src="/api/submissions/${sid}/photo/${slot}" alt="" style="width:100%;margin-top:10px;border-radius:8px">
+  </div>`;
+}
+
+async function load() {
+  let r;
+  try { r = await VG.json(`/api/submissions/${sid}`); }
+  catch (e) { document.querySelector("#root").innerHTML = `<p class="err">${VG.esc(e.message)}</p>`; return; }
+  const pending = r.phase === "vlm_pending" || r.phase === "vlm_running";
+  const manual = r.manual_status ? `<p><b>${VG.t("reviewer_decision")}:</b> ${VG.badge(r.manual_status, VG.t(r.manual_status === "APPROVED" ? "approved" : "rejected"))} ${VG.esc(r.manual_comment || "")}</p>` : "";
+  document.querySelector("#root").innerHTML = `
+    <h1>${VG.t("submission", { id: r.id })}</h1>
+    <div class="card">
+      <p>${VG.badge(r.status, VG.pick(r, "status"), true)}</p>
+      <p>${VG.esc(VG.pick(r, "message"))}</p>${manual}
+      ${pending ? `<p class="hint"><span class="spinner"></span> ${VG.t("bg_check")}${r.queue > 1 ? `, ${VG.t("in_queue")}: ${r.queue}` : ""}. ${VG.t("auto_refresh")}</p>` : ""}
+      <dl class="kv"><dt>${VG.t("entered_imei")}</dt><dd class="mono">${VG.esc(r.imei)}</dd>
+        ${r.client_barcode ? `<dt>${VG.t("camera_read")}</dt><dd class="mono">${VG.esc(r.client_barcode)}</dd>` : ""}
+        <dt>${VG.t("fast_check")}</dt><dd>${r.fast_seconds ?? "—"} ${VG.t("sec")}</dd>
+        ${r.vlm_seconds ? `<dt>${VG.t("screen_check")}</dt><dd>${r.vlm_seconds} ${VG.t("sec")}</dd>` : ""}</dl>
+    </div>
+    ${slotCard("device", r.slots.device)}${slotCard("scan", r.slots.scan)}`;
+  if (pending) setTimeout(load, 4000);
+}
+load();
+</script>
+</body>
+</html>

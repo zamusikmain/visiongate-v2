@@ -1,0 +1,30 @@
+# Окружение и кэши
+.venv/
+__pycache__/
+*.pyc
+.claude/
+
+# Данные Samsung и пользователей — НЕ публиковать
+data/
+storage/
+reports/
+*.db
+*.sqlite*
+*.xlsx
+*.xls
+*.docx
+*.doc
+*.zip
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.webp
+*.bmp
+
+# Модели и веса (скачиваются при установке)
+*.onnx
+*.gguf
+*.safetensors
+*.bin
+models/
