@@ -71,6 +71,31 @@ MSG = {
                      "is running — the final status will appear in a few minutes."),
     "final_no_vlm": ("IMEI совпадает, но проверка на фото экрана выключена — нужна проверка человеком.",
                      "The IMEI matches, but the screen-photo check is disabled — a human check is needed."),
+    # --- режим без введённого IMEI: сверка только между фото (опорный номер — с фото) ---
+    "ok_photo": ("IMEI {entered} распознан и совпадает с IMEI на другом фото.",
+                 "IMEI {entered} recognised and matches the IMEI on the other photo."),
+    "mismatch_photo": ("На этом фото прочитан IMEI {read}, а на другом фото — {entered}.",
+                       "This photo shows IMEI {read}, while the other photo shows {entered}."),
+    "barcode_review_photo": ("Штрихкод совпадает с IMEI на другом фото, но цифры на этикетке не читаются уверенно — "
+                             "нужна проверка человеком.",
+                             "The barcode matches the IMEI on the other photo, but the digits are not clearly readable — "
+                             "a human check is needed."),
+    "sibling_review_photo": ("Здесь прочитан второй IMEI того же устройства, но совпадение не подтверждено текстом — "
+                             "нужна проверка человеком.",
+                             "The other IMEI of the same device was read here, but the match is not confirmed by text — "
+                             "a human check is needed."),
+    "sibling_ok_photo": ("Здесь прочитан второй IMEI того же устройства (IMEI1/IMEI2) — это одно устройство.",
+                         "The other IMEI of the same device (IMEI1/IMEI2) was read here — it is the same device."),
+    "final_ok_photo": ("IMEI {imei} распознан на обоих фото, номера совпадают.",
+                       "IMEI {imei} recognised on both photos, the numbers match."),
+    "final_prelim_photo": ("IMEI {imei} распознан на обоих фото, номера совпадают. Идёт фоновая проверка на фото экрана — "
+                           "итоговый статус появится через несколько минут.",
+                           "IMEI {imei} recognised on both photos, the numbers match. A background screen-photo check "
+                           "is running — the final status will appear in a few minutes."),
+    "final_no_vlm_photo": ("IMEI {imei} совпадает на обоих фото, но проверка на фото экрана выключена — "
+                           "нужна проверка человеком.",
+                           "IMEI {imei} matches on both photos, but the screen-photo check is disabled — "
+                           "a human check is needed."),
 }
 _LABEL_WORDS = {"IMEI", "SM-", "EID"}
 DARK_MEAN = 45  # средняя яркость 0–255 без зелёного текста: ниже — кадр явно тёмный
@@ -138,8 +163,35 @@ def _shown(all_imeis: set, reliable: set, entered: str) -> list:
     return sorted(reliable | {x for x in all_imeis if x == entered or imei.same_serial(x, entered)})
 
 
-def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None) -> dict:
-    """Решение по слоту. vlm=None — быстрая фаза (VLM ещё не запускалась)."""
+def _k(key: str, mode: str) -> str:
+    """Ключ сообщения с учётом режима: в режиме «по фото» — вариант *_photo, если он есть."""
+    return f"{key}_photo" if mode == "photo" and f"{key}_photo" in MSG else key
+
+
+def pick_anchor(ev_dev: dict, ev_scan: dict) -> str:
+    """Опорный IMEI, когда пользователь его не ввёл. Приоритет:
+    1) номер, прочитанный на обоих фото (случайно совпасть мусор на двух фото не может);
+    2) IMEI1/IMEI2 одного устройства на разных фото (та же серийная часть) — берём надёжный;
+    3) надёжно прочитанный номер на одном из фото (штрихкод или текст дважды).
+    Нет ничего — пустая строка: на фото не удалось прочитать ни одного IMEI."""
+    all_d, rel_d = slot_imeis(ev_dev)
+    all_s, rel_s = slot_imeis(ev_scan)
+    bars = set(ev_dev["barcode_imeis"]) | set(ev_scan["barcode_imeis"])
+    common = all_d & all_s
+    if common:
+        return sorted(common, key=lambda x: (x not in bars, x not in rel_d | rel_s, x))[0]
+    for x in sorted(rel_d | rel_s, key=lambda x: (x not in bars, x)):
+        other = all_s if x in all_d else all_d
+        if any(imei.same_serial(x, y) for y in other):
+            return x
+    rel = sorted(rel_d | rel_s, key=lambda x: (x not in bars, x))
+    return rel[0] if rel else ""
+
+
+def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None, mode: str = "entered") -> dict:
+    """Решение по слоту. vlm=None — быстрая фаза (VLM ещё не запускалась).
+    mode: entered — сверка с введённым IMEI; photo — entered здесь опорный номер с фото (pick_anchor)."""
+    k = lambda key: _k(key, mode)  # noqa: E731
     cands = ev["candidates"]
     text_luhn = {c["digits"] for c in cands if c["luhn"]}
     bars = set(ev["barcode_imeis"])
@@ -163,7 +215,7 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None) -> d
 
     # --- быстрая фаза ---
     if not match_text and not match_bar and foreign and not sibling:
-        fast = _slot("reject", "IMEI_MISMATCH", "mismatch", params={"read": ", ".join(foreign), "entered": entered},
+        fast = _slot("reject", "IMEI_MISMATCH", k("mismatch"), params={"read": ", ".join(foreign), "entered": entered},
                      **info)
     elif match_text:
         if ui:
@@ -173,11 +225,11 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None) -> d
             # IMEI прочитан, но второй номер блока не подтверждён: обрезка или OCR не дочитал — не отклоняем
             fast = _slot("review", None, "pair_review", suspected="CROPPED", **info)
         else:
-            fast = _slot("ok", None, "ok", **info)
+            fast = _slot("ok", None, k("ok"), params={"entered": entered}, **info)
     elif match_bar:
-        fast = _slot("review", None, "barcode_review", suspected="BLURRY_DARK_UNREADABLE", **info)
+        fast = _slot("review", None, k("barcode_review"), suspected="BLURRY_DARK_UNREADABLE", **info)
     elif sibling:
-        fast = _slot("review", None, "sibling_review", sibling_only=True, **info)
+        fast = _slot("review", None, k("sibling_review"), sibling_only=True, **info)
     elif ui:
         fast = _slot("reject", "PHOTO_OF_SCREEN", **info)
     elif label_present:
@@ -212,7 +264,7 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None) -> d
     return out
 
 
-def cross_check(slots: dict, entered: str) -> dict | None:
+def cross_check(slots: dict, entered: str, mode: str = "entered") -> dict | None:
     """Сверка IMEI между фото коробки и сканом. Меняет slots на месте.
     Возвращает описание несовпадения или None."""
     d, s = slots.get("device"), slots.get("scan")
@@ -228,7 +280,7 @@ def cross_check(slots: dict, entered: str) -> dict | None:
         if a.get("sibling_only") and a["status"] == "review" and b["status"] == "ok" \
                 and "text" in b.get("matched_by", []) and related(set(a["all_imeis"]), {entered}):
             a["status"] = "ok"
-            _set_msg(a, "sibling_ok")
+            _set_msg(a, _k("sibling_ok", mode))
     return None
 
 
@@ -241,15 +293,17 @@ def invalid_entry_slot(ev: dict) -> dict:
                  barcode_imeis=sorted(ev["barcode_imeis"]), matched=False, matched_by=[])
 
 
-def _final(status, reasons, key=None, ru="", en=""):
+def _final(status, reasons, key=None, ru="", en="", **params):
     if key:
-        ru, en = _t(key)
+        ru, en = _t(key, **params)
     return {"status": status, "reasons": reasons, "message": ru, "message_en": en}
 
 
-def combine(slots: dict, entered: str, phase: str, settings: dict, cross: dict | None = None) -> dict:
-    """Итог по двум слотам. phase: fast | final. cross — результат cross_check."""
-    if not imei.is_valid_imei(entered):
+def combine(slots: dict, entered: str, phase: str, settings: dict, cross: dict | None = None,
+            mode: str = "entered") -> dict:
+    """Итог по двум слотам. phase: fast | final. cross — результат cross_check.
+    mode=photo: entered — опорный IMEI с фото (может быть пустым), проверки Луна по вводу нет."""
+    if mode == "entered" and not imei.is_valid_imei(entered):
         return _final("REJECTED", ["INVALID_IMEI"], "INVALID_IMEI")
     st = [s["status"] for s in slots.values()]
     reasons = {s["reason"] for s in slots.values() if s["status"] == "reject" and s["reason"]}
@@ -269,12 +323,13 @@ def combine(slots: dict, entered: str, phase: str, settings: dict, cross: dict |
     if "review" in st:
         ru, en = join("review")
         return _final("REVIEW", [], ru=ru, en=en)
+    k = lambda key: _k(key, mode)  # noqa: E731
     if phase == "fast":
         if settings.get("vlm_provider", "off") != "off":
-            return _final("PRELIMINARY", [], "final_prelim")
+            return _final("PRELIMINARY", [], k("final_prelim"), imei=entered)
         if settings.get("require_screen_check", True):
-            return _final("REVIEW", [], "final_no_vlm")
-    return _final("APPROVED", [], "final_ok")
+            return _final("REVIEW", [], k("final_no_vlm"), imei=entered)
+    return _final("APPROVED", [], k("final_ok"), imei=entered)
 
 
 def needs_vlm(fast_final: dict, settings: dict) -> bool:

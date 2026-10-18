@@ -46,7 +46,8 @@ async function load() {
       <p>${VG.badge(r.status, VG.pick(r, "status"), true)}</p>
       <p>${VG.esc(VG.pick(r, "message"))}</p>${manual}
       ${pending ? `<p class="hint"><span class="spinner"></span> ${VG.t("bg_check")}${r.queue > 1 ? `, ${VG.t("in_queue")}: ${r.queue}` : ""}. ${VG.t("auto_refresh")}</p>` : ""}
-      <dl class="kv"><dt>${VG.t("entered_imei")}</dt><dd class="mono">${VG.esc(r.imei)}</dd>
+      <dl class="kv">${r.imei_source === "entered" ? `<dt>${VG.t("entered_imei")}</dt><dd class="mono">${VG.esc(r.imei)}</dd>`
+        : `<dt>${VG.t("imei_from_photo")}</dt><dd class="mono">${r.imei ? VG.esc(r.imei) : VG.t("imei_not_found")}</dd>`}
         ${r.client_barcode ? `<dt>${VG.t("camera_read")}</dt><dd class="mono">${VG.esc(r.client_barcode)}</dd>` : ""}
         <dt>${VG.t("fast_check")}</dt><dd>${r.fast_seconds ?? "—"} ${VG.t("sec")}</dd>
         ${r.vlm_seconds ? `<dt>${VG.t("screen_check")}</dt><dd>${r.vlm_seconds} ${VG.t("sec")}</dd>` : ""}</dl>

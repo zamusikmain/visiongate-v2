@@ -12,21 +12,21 @@
   <h1 data-i18n="title_register"></h1>
   <form id="form" novalidate>
     <div class="card">
-      <label for="imei" data-i18n="imei_label"></label>
+      <label for="imei" data-i18n="imei_label_opt"></label>
       <input id="imei" class="imei" type="text" inputmode="numeric" autocomplete="off" maxlength="17" placeholder="35xxxxxxxxxxxxx">
       <div id="imeiCheck" class="check"></div>
       <div class="row" style="margin-top:8px">
         <button type="button" id="scanBtn" data-i18n="scan_btn"></button>
       </div>
-      <p class="hint" data-i18n="imei_hint"></p>
+      <p class="hint" data-i18n="imei_hint_opt"></p>
     </div>
 
     <div class="card" data-slot="device">
       <h2 data-i18n="slot1_title"></h2>
       <p class="hint" data-i18n="slot1_hint"></p>
       <div class="row" style="margin-top:10px">
-        <label class="btn"><span data-i18n="take_photo"></span><input type="file" accept="image/*" capture="environment" hidden></label>
-        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" hidden></label>
+        <button type="button" class="btn" data-cam><span data-i18n="take_photo"></span></button>
+        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" data-gallery hidden></label>
       </div>
       <img class="slot-preview" alt="">
       <div class="check"></div>
@@ -36,8 +36,8 @@
       <h2 data-i18n="slot2_title"></h2>
       <p class="hint" data-i18n="slot2_hint"></p>
       <div class="row" style="margin-top:10px">
-        <label class="btn"><span data-i18n="take_photo"></span><input type="file" accept="image/*" capture="environment" hidden></label>
-        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" hidden></label>
+        <button type="button" class="btn" data-cam><span data-i18n="take_photo"></span></button>
+        <label class="btn"><span data-i18n="from_gallery"></span><input type="file" accept="image/*" data-gallery hidden></label>
       </div>
       <img class="slot-preview" alt="">
       <div class="check"></div>
@@ -57,6 +57,7 @@
 <script src="/static/common.js"></script>
 <script>VG.header("/"); VG.applyI18n();</script>
 <script src="/static/vendor/zxing-wasm/zxing-reader.js"></script>
+<script src="/static/camera.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -37,8 +37,16 @@ def _role(name: str) -> str | None:
     return None
 
 
+def _suffix(stem: str) -> str:
+    """Общая часть имени без префикса роли: device_abc / scan-abc → abc."""
+    return re.sub(r"^(device|box|scan|label)[\s_\-.]*", "", stem, flags=re.I).lower()
+
+
 def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
-    """Возвращает (пары, эталон, предупреждения). Пара: {key, folder, imei, device, scan} (имена в архиве)."""
+    """Возвращает (пары, эталон, предупреждения). Пара: {key, folder, imei_name, device, scan} (имена в архиве).
+    IMEI в именах не нужен: пара — это единственные device*/scan* в папке или файлы с одинаковым окончанием
+    (device_123.jpg ↔ scan_123.jpg). Если в имени есть 15 цифр, они запоминаются (imei_name) — для сверки
+    по желанию пользователя и для сопоставления с эталоном."""
     if len(data) > MAX_ZIP:
         raise BatchError("ZIP больше 500 МБ")
     try:
@@ -48,7 +56,7 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
     infos = [i for i in zf.infolist() if not i.is_dir() and "__MACOSX" not in i.filename]
     if sum(i.file_size for i in infos) > MAX_UNPACKED:
         raise BatchError("Распакованный размер архива больше 2 ГБ")
-    groups: dict[tuple, dict] = {}
+    folders: dict[str, dict[str, list]] = {}
     truth, warnings = {}, []
     for i in infos:
         p = PurePosixPath(i.filename.replace("\\", "/"))
@@ -67,19 +75,25 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
         if i.file_size > MAX_FILE:
             warnings.append(f"Пропущен {i.filename}: больше 25 МБ")
             continue
-        m = re.search(r"\d{15}", p.stem) or re.search(r"\d{15}", p.parent.name)
-        key = (str(p.parent), m.group(0) if m else "")
-        g = groups.setdefault(key, {"folder": str(p.parent), "imei": key[1]})
-        if role in g:
-            warnings.append(f"В папке {p.parent} несколько файлов {role}: взят {g[role]}")
-            continue
-        g[role] = i.filename
+        folders.setdefault(str(p.parent), {"device": [], "scan": []})[role].append(i.filename)
     pairs = []
-    for (folder, im), g in sorted(groups.items()):
-        if "device" not in g or "scan" not in g:
-            warnings.append(f"{folder or '/'} {im}: нет пары device/scan")
-            continue
-        pairs.append(dict(g, key=f"{folder}/{im}"))
+    for folder, roles in sorted(folders.items()):
+        devs, scans = roles["device"], roles["scan"]
+        if len(devs) == 1 and len(scans) == 1:
+            matched = [(devs[0], scans[0])]
+        else:  # несколько пар в одной папке — по одинаковому окончанию имени
+            by_suffix = {_suffix(PurePosixPath(s).stem): s for s in scans}
+            matched = [(d, by_suffix[_suffix(PurePosixPath(d).stem)]) for d in devs
+                       if _suffix(PurePosixPath(d).stem) in by_suffix]
+            used = {f for pair in matched for f in pair}
+            for f in devs + scans:
+                if f not in used:
+                    warnings.append(f"Нет пары для {f}: в папке несколько фото, окончания имён должны совпадать "
+                                    f"(device_X.jpg ↔ scan_X.jpg)")
+        for d, s in matched:
+            m = re.search(r"\d{15}", PurePosixPath(d).stem) or re.search(r"\d{15}", PurePosixPath(folder).name)
+            pairs.append({"folder": folder, "imei_name": m.group(0) if m else "", "device": d, "scan": s,
+                          "key": f"{folder}/{PurePosixPath(d).name}"})
     if not pairs:
         raise BatchError("В архиве не найдено ни одной пары device_*/scan_*")
     if len(pairs) > MAX_PAIRS:
@@ -87,9 +101,25 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
     return pairs, truth, warnings
 
 
+def _truth_for(truth: dict, *nums: str):
+    """Эталон по IMEI: из имени файла или определённому с фото (в т.ч. IMEI2 того же устройства)."""
+    for n in nums:
+        if not n:
+            continue
+        if n in truth:
+            return truth[n]
+        for k, v in truth.items():
+            if imei.same_serial(k, n):
+                return v
+    return None
+
+
 def _row(pair, res, truth, error=None) -> dict:
-    t = truth.get(pair["imei"]) if truth else None
-    row = {"folder": pair["folder"], "imei": pair["imei"], "error": error, "truth": t}
+    num = (res or {}).get("imei") or ""
+    t = _truth_for(truth, pair["imei_name"], num) if truth else None
+    row = {"folder": pair["folder"], "imei": num, "imei_source": (res or {}).get("imei_source", ""),
+           "imei_name": pair["imei_name"], "device_file": pair["device"], "scan_file": pair["scan"],
+           "error": error, "truth": t}
     if res:
         f = res["final"]
         row.update(status=f["status"], reasons=f["reasons"], message=f["message"], message_en=f.get("message_en", ""),
@@ -112,7 +142,7 @@ def _save(job):
     (BATCHES / f"{job['id']}.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 
 
-def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool):
+def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool, use_name_imei: bool):
     job = _jobs[job_id]
     settings = dict(load_settings())
     if not use_vlm:
@@ -122,12 +152,11 @@ def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool):
     for pair in pairs:
         try:
             raw = {s: zf.read(pair[s]) for s in pipeline.SLOTS}
-            if not pair["imei"]:
-                raise BatchError("IMEI не найден в имени файла или папки")
             imgs = {s: pipeline.load(raw[s]) for s in pipeline.SLOTS}
-            res = pipeline.fast_check(imgs, pair["imei"], settings)
+            # по умолчанию IMEI из имён не используется: номер читается с фото, фото сверяются между собой
+            res = pipeline.fast_check(imgs, pair["imei_name"] if use_name_imei else "", settings)
             if res["needs_vlm"]:
-                job["stage"] = f"VLM: {pair['imei']}"
+                job["stage"] = f"VLM: {PurePosixPath(pair['device']).name}"
                 res = pipeline.vlm_check(imgs, res, settings, raw=raw)
             if not use_vlm and res["final"]["status"] == "APPROVED":
                 res["final"]["status"] = "PRELIMINARY"  # проверка экрана не выполнялась
@@ -145,16 +174,16 @@ def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool):
     _save(job)
 
 
-def start(data: bytes, filename: str, use_vlm: bool) -> dict:
+def start(data: bytes, filename: str, use_vlm: bool, use_name_imei: bool = False) -> dict:
     pairs, truth, warnings = parse_zip(data)
     job_id = uuid.uuid4().hex[:10]
     job = {"id": job_id, "filename": filename, "state": "running", "total": len(pairs), "done": 0, "stage": "",
-           "use_vlm": use_vlm, "has_truth": bool(truth), "warnings": warnings, "rows": [],
+           "use_vlm": use_vlm, "use_name_imei": use_name_imei, "has_truth": bool(truth), "warnings": warnings, "rows": [],
            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     _jobs[job_id] = job
     BATCHES.mkdir(parents=True, exist_ok=True)
     _save(job)
-    threading.Thread(target=_run, args=(job_id, data, pairs, truth, use_vlm), daemon=True,
+    threading.Thread(target=_run, args=(job_id, data, pairs, truth, use_vlm, use_name_imei), daemon=True,
                      name=f"batch-{job_id}").start()
     return job
 
@@ -171,9 +200,9 @@ def get(job_id: str) -> dict | None:
 # --- XLSX ---
 _FILL = {"APPROVED": "E5F5EA", "PRELIMINARY": "E5F5EA", "REJECTED": "FDECEA", "REVIEW": "FDF3E1", "ERROR": "EEEEEE"}
 _HDR = {
-    "ru": ["Папка", "IMEI", "Итог", "Причины", "Пояснение", "Фото коробки", "Скан этикетки",
+    "ru": ["Файл фото коробки", "IMEI", "Источник IMEI", "Итог", "Причины", "Пояснение", "Фото коробки", "Скан этикетки",
            "IMEI на фото коробки", "IMEI на скане", "Быстрая фаза, с", "VLM, с", "Эталон", "Совпало с эталоном"],
-    "en": ["Folder", "IMEI", "Result", "Reasons", "Explanation", "Box photo", "Label scan",
+    "en": ["Box photo file", "IMEI", "IMEI source", "Result", "Reasons", "Explanation", "Box photo", "Label scan",
            "IMEI on box photo", "IMEI on scan", "Fast phase, s", "VLM, s", "Reference", "Matches reference"],
 }
 
@@ -198,15 +227,17 @@ def to_xlsx(job: dict, lang: str = "ru") -> bytes:
             return f"{st}{' — ' + d['reason'] if d.get('reason') else ''}"
         t = r.get("truth")
         status = decision.STATUS.get(r["status"], (r["status"], r["status"]))[li] if r["status"] != "ERROR" else "ERROR"
-        ws.append([r["folder"], r["imei"], status, ", ".join(r.get("reasons") or []),
+        src = {"photo": ("с фото", "from photo"), "entered": ("из имени файла", "from file name"),
+               "none": ("не найден", "not found")}.get(r.get("imei_source") or "none", ("", ""))[li]
+        ws.append([r.get("device_file") or r["folder"], r["imei"], src, status, ", ".join(r.get("reasons") or []),
                    r.get("message_en" if li else "message") or "", slot("device"), slot("scan"),
                    ", ".join((r["slots"].get("device") or {}).get("read_imeis") or []),
                    ", ".join((r["slots"].get("scan") or {}).get("read_imeis") or []),
                    r.get("fast_seconds"), r.get("vlm_seconds"),
                    f"{t['final']} ({t['device']} / {t['scan']})" if t else "",
                    "" if r.get("agree") is None else (("yes" if li else "да") if r["agree"] else ("no" if li else "нет"))])
-        ws.cell(ws.max_row, 3).fill = PatternFill("solid", fgColor=_FILL.get(r["status"], "FFFFFF"))
-    widths = [28, 18, 22, 30, 70, 30, 30, 34, 34, 12, 10, 40, 12]
+        ws.cell(ws.max_row, 4).fill = PatternFill("solid", fgColor=_FILL.get(r["status"], "FFFFFF"))
+    widths = [44, 18, 16, 22, 30, 70, 30, 30, 34, 34, 12, 10, 40, 12]
     for i, w in enumerate(widths):
         ws.column_dimensions[chr(65 + i)].width = w
     for row in ws.iter_rows(min_row=2):

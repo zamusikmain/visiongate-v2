@@ -5,30 +5,41 @@ const $ = s => document.querySelector(s);
 
 // --- IMEI ---
 const imeiInput = $("#imei");
+// IMEI необязателен: пустое поле — нормально (номер прочитается с фото); введённый должен быть корректным
 function checkImei() {
   const d = VG.digits(imeiInput.value);
   const el = $("#imeiCheck");
-  if (!d) { el.textContent = ""; el.className = "check"; return false; }
+  if (!d) { el.textContent = VG.t("imei_empty_ok"); el.className = "check"; return true; }
   if (d.length !== 15) { el.textContent = VG.t("imei_digits", { n: d.length }); el.className = "check bad"; return false; }
   if (!VG.luhn(d)) { el.textContent = VG.t("imei_luhn_bad"); el.className = "check bad"; return false; }
   el.textContent = VG.t("imei_ok"); el.className = "check ok"; return true;
 }
 imeiInput.addEventListener("input", checkImei);
+checkImei();
 
-// --- фото ---
+// --- фото: живая камера на странице или файл из галереи ---
+function setPhoto(slot, f) {
+  const card = document.querySelector(`[data-slot="${slot}"]`);
+  files[slot] = f;
+  const img = card.querySelector(".slot-preview");
+  img.src = URL.createObjectURL(f);
+  img.style.display = "block";
+  card.querySelector(".check").textContent = `✓ ${f.name || "photo"} — ${(f.size / 1048576).toFixed(1)} MB`;
+  card.querySelector(".check").className = "check ok";
+}
 document.querySelectorAll("[data-slot]").forEach(card => {
   const slot = card.dataset.slot;
-  card.querySelectorAll("input[type=file]").forEach(inp => inp.addEventListener("change", () => {
-    const f = inp.files[0];
-    if (!f) return;
-    files[slot] = f;
-    const img = card.querySelector(".slot-preview");
-    img.src = URL.createObjectURL(f);
-    img.style.display = "block";
-    card.querySelector(".check").textContent = `✓ ${f.name || "photo"} — ${(f.size / 1048576).toFixed(1)} MB`;
-    card.querySelector(".check").className = "check ok";
-  }));
+  card.querySelector("[data-gallery]").addEventListener("change", e => {
+    if (e.target.files[0]) setPhoto(slot, e.target.files[0]);
+    e.target.value = "";  // можно выбрать тот же файл повторно
+  });
+  card.querySelector("[data-cam]").addEventListener("click", async () => {
+    const f = await VGCamera.open(slot);
+    if (f) setPhoto(slot, f);
+  });
 });
+// из окна камеры (нет доступа / нет камеры) — сразу к выбору из галереи
+VGCamera.onGallery = slot => document.querySelector(`[data-slot="${slot}"] [data-gallery]`).click();
 
 // --- отправка ---
 $("#form").addEventListener("submit", async e => {

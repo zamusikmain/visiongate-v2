@@ -119,6 +119,7 @@ def main():
     ap.add_argument("--data", default=str(Path(__file__).resolve().parent.parent / "data" / "Test"))
     ap.add_argument("--no-vlm", action="store_true")
     ap.add_argument("--vlm-all", action="store_true")
+    ap.add_argument("--photo-only", action="store_true", help="без введённого IMEI: сверка только между фото")
     args = ap.parse_args()
     settings = load_settings()
     if args.no_vlm:
@@ -139,7 +140,7 @@ def main():
     t0 = time.time()
     results = []
     for c in cases:
-        r = run_case(c, c["imei"], settings, args, cache)
+        r = run_case(c, "" if args.photo_only else c["imei"], settings, args, cache)
         results.append((c, r))
         print(f"{c['imei']} эталон={c['truth']['final']:8} → {r['final']['status']:11} "
               f"device={slot_pred(r['slots']['device']):22} scan={slot_pred(r['slots']['scan'])}", flush=True)
@@ -147,13 +148,13 @@ def main():
     # --- синтетика ---
     synth = []
     approved = [c for c in cases if c["truth"]["final"] == "APPROVED"]
-    for i, c in enumerate(approved):
+    for i, c in enumerate([] if args.photo_only else approved):
         other = approved[(i + 1) % len(approved)]["imei"]
         r = run_case(c, other, settings, args, cache)
         synth.append(("IMEI_MISMATCH", c["imei"], other, r["final"]["status"], r["final"]["reasons"],
                       r["final"]["status"] == "REJECTED" and "IMEI_MISMATCH" in r["final"]["reasons"],
                       r["final"]["status"] != "APPROVED" and r["final"]["status"] != "PRELIMINARY"))
-    for c in cases:
+    for c in ([] if args.photo_only else cases):
         bad = c["imei"][:-1] + str((int(c["imei"][-1]) + 1) % 10)
         r = run_case(c, bad, settings, args, cache)
         synth.append(("INVALID_IMEI", c["imei"], bad, r["final"]["status"], r["final"]["reasons"],
@@ -162,11 +163,11 @@ def main():
         # фото коробки одного устройства + скан другого: сверка между фото должна дать IMEI_MISMATCH
         other = approved[(i + 1) % len(approved)]
         mixed = dict(c, scan=other["scan"])
-        r = run_case(mixed, c["imei"], settings, args, cache)
+        r = run_case(mixed, "" if args.photo_only else c["imei"], settings, args, cache)
         synth.append(("РАЗНЫЕ УСТРОЙСТВА", f"{c['imei']} + скан {other['imei']}", c["imei"], r["final"]["status"],
                       r["final"]["reasons"], r["final"]["status"] == "REJECTED" and "IMEI_MISMATCH" in r["final"]["reasons"],
                       r["final"]["status"] not in ("APPROVED", "PRELIMINARY")))
-    imei2_of = load_imei2(data)
+    imei2_of = {} if args.photo_only else load_imei2(data)
     for c in approved:
         i2 = imei2_of.get(c["imei"])
         if not i2:
@@ -205,7 +206,12 @@ def main():
     vlm_times = [r["vlm"][s]["seconds"] for _, r in results if r.get("vlm") for s in pipeline.SLOTS]
 
     summary = {
-        "generated": datetime.now().isoformat(timespec="seconds"), "cases": n,
+        "generated": datetime.now().isoformat(timespec="seconds"), "cases": n, "photo_only": args.photo_only,
+        # IMEI, определённый системой (введённый или с фото), совпал с эталоном (или это IMEI2 того же устройства)
+        "imei_detected_ok": sum(1 for c, r in results if r.get("imei") and (r["imei"] == c["imei"]
+                                                                            or imei.same_serial(r["imei"], c["imei"]))),
+        "imei_detected_wrong": sum(1 for c, r in results if r.get("imei") and r["imei"] != c["imei"]
+                                   and not imei.same_serial(r["imei"], c["imei"])),
         "vlm_provider": settings["vlm_provider"], "vlm_all": args.vlm_all,
         "false_approve": false_approve, "false_reject": false_reject, "review": review,
         "n_rejected": n_rej, "n_approved": n_app,
@@ -229,17 +235,18 @@ def main():
                        "expected": s[5], "safe": s[6]} for s in synth],
         "elapsed_s": round(time.time() - t0, 1),
     }
-    (REPORTS / "eval_results.json").write_text(json.dumps({
+    suffix = "_photo" if args.photo_only else ""
+    (REPORTS / f"eval_results{suffix}.json").write_text(json.dumps({
         "summary": summary,
         "cases": [{"imei": c["imei"], "truth": c["truth"], "final": r["final"],
                    "slots": {s: {k: r["slots"][s].get(k) for k in ("status", "reason", "message", "read_imeis", "suspected")}
                              for s in pipeline.SLOTS},
                    "vlm": {s: {k: v for k, v in r["vlm"][s].items() if k != "raw"} for s in pipeline.SLOTS} if r.get("vlm") else None}
                   for c, r in results]}, ensure_ascii=False, indent=1), encoding="utf-8")
-    (REPORTS / "eval_report.html").write_text(render(summary, results, final_counts, slot_status, reason_counts, synth),
+    (REPORTS / f"eval_report{suffix}.html").write_text(render(summary, results, final_counts, slot_status, reason_counts, synth),
                                               encoding="utf-8")
     print(json.dumps({k: v for k, v in summary.items() if k != "synthetic"}, ensure_ascii=False, indent=1))
-    print("Отчёт:", REPORTS / "eval_report.html")
+    print("Отчёт:", REPORTS / f"eval_report{suffix}.html")
 
 
 def render(sm, results, final_counts, slot_status, reason_counts, synth) -> str:
@@ -272,6 +279,9 @@ def render(sm, results, final_counts, slot_status, reason_counts, synth) -> str:
     vlm_note = {"off": "VLM выключена (--no-vlm): «фото экрана» проверяется только по признакам интерфейса в OCR.",
                 "ollama": "VLM: локальная Ollama" + (" для всех фото (--vlm-all)." if sm["vlm_all"] else " только для заявок, не отклонённых быстрой фазой (как в проде)."),
                 "anthropic": "VLM: внешний API Anthropic."}[sm["vlm_provider"]]
+    vlm_note += (" Режим: БЕЗ введённого IMEI — номер читается с фото, сверяются фото между собой" if sm["photo_only"]
+                 else " Режим: IMEI введён (из имени папки).") + \
+        f" IMEI определён верно: {sm['imei_detected_ok']} из {sm['cases']}, неверно: {sm['imei_detected_wrong']}."
     def num(v, total):
         return "—" if v is None else f"{v} из {total}"
     base_rows = ""

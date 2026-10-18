@@ -80,7 +80,9 @@ def _public(rec: dict) -> dict:
     final = res.get("final") or {}
     st = decision.STATUS.get(rec["status"], (rec["status"], rec["status"]))
     reasons = final.get("reasons", [])
-    return {"id": rec["id"], "imei": rec["imei"], "created_at": rec["created_at"], "status": rec["status"],
+    return {"id": rec["id"], "imei": rec["imei"], "entered": res.get("entered", rec["imei"]),
+            "imei_source": res.get("imei_source", "entered"),
+            "created_at": rec["created_at"], "status": rec["status"],
             "status_ru": st[0], "status_en": st[1], "phase": rec["phase"],
             "message": final.get("message", ""), "message_en": final.get("message_en", final.get("message", "")),
             "reasons": reasons,
@@ -93,11 +95,12 @@ def _public(rec: dict) -> dict:
 
 
 @app.post("/api/submissions")
-async def create_submission(imei_value: str = Form(..., alias="imei"), device: UploadFile = File(...),
+async def create_submission(imei_value: str = Form("", alias="imei"), device: UploadFile = File(...),
                             scan: UploadFile = File(...), client_barcode: str = Form("")):
+    # IMEI необязателен: без него номер читается с фото и фото сверяются между собой
     entered = imei.normalize(imei_value)
-    if len(entered) != 15:
-        raise HTTPException(400, "IMEI должен состоять из 15 цифр")
+    if entered and len(entered) != 15:
+        raise HTTPException(400, "IMEI должен состоять из 15 цифр (или оставьте поле пустым)")
     files = {"device": await _read_image(device), "scan": await _read_image(scan)}
     sid = db.create(entered, imei.normalize(client_barcode) or None)
     names = {}
@@ -118,7 +121,8 @@ async def create_submission(imei_value: str = Form(..., alias="imei"), device: U
                                     "message": f"Ошибка автоматической проверки ({type(e).__name__}) — нужна проверка человеком."}})
         return _public(db.get(sid))
     phase = "vlm_pending" if res["needs_vlm"] else "final"
-    db.update(sid, status=res["final"]["status"], phase=phase, result=res, fast_seconds=res["fast_seconds"],
+    db.update(sid, imei=res["imei"] or entered, status=res["final"]["status"], phase=phase, result=res,
+              fast_seconds=res["fast_seconds"],
               device_file=names["device"], scan_file=names["scan"])
     if phase == "vlm_pending":
         worker.enqueue(sid)
@@ -173,10 +177,10 @@ def batch_page():
 
 
 @app.post("/api/batches")
-async def create_batch(file: UploadFile = File(...), use_vlm: bool = Form(True)):
+async def create_batch(file: UploadFile = File(...), use_vlm: bool = Form(True), use_name_imei: bool = Form(False)):
     data = await file.read()
     try:
-        job = batch.start(data, file.filename or "batch.zip", use_vlm)
+        job = batch.start(data, file.filename or "batch.zip", use_vlm, use_name_imei)
     except batch.BatchError as e:
         raise HTTPException(400, str(e))
     return {k: v for k, v in job.items() if k != "rows"}

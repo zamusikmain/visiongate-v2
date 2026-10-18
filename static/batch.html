@@ -15,6 +15,7 @@
     <label for="zip" style="margin-top:12px" data-i18n="batch_file"></label>
     <input id="zip" type="file" accept=".zip,application/zip">
     <label style="margin-top:12px;font-weight:400"><input type="checkbox" id="vlm" checked> <span data-i18n="batch_vlm"></span></label>
+    <label style="font-weight:400"><input type="checkbox" id="nameImei"> <span data-i18n="use_name_imei"></span></label>
     <button type="submit" class="primary" id="go" style="margin-top:12px" data-i18n="batch_start"></button>
     <p id="msg" class="hint"></p>
   </form>
@@ -33,6 +34,7 @@ document.querySelector("#f").addEventListener("submit", async e => {
   const fd = new FormData();
   fd.append("file", f);
   fd.append("use_vlm", document.querySelector("#vlm").checked);
+  fd.append("use_name_imei", document.querySelector("#nameImei").checked);
   document.querySelector("#go").disabled = true;
   document.querySelector("#msg").innerHTML = `<span class="spinner"></span> ${VG.t("uploading")}`;
   try {
@@ -61,7 +63,9 @@ function render(job) {
     const st = r.status === "ERROR" ? VG.t("error") : (statuses[r.status]?.[VG.lang] || r.status);
     const agree = r.agree === undefined || r.agree === null ? "" : (r.agree ? "✓" : "✗");
     const msg = VG.lang === "en" ? r.message_en : r.message;
-    return `<tr><td><small>${VG.esc(r.folder)}</small></td><td class="mono">${VG.esc(r.imei)}</td>
+    const imeiCell = r.imei ? `${VG.esc(r.imei)}<br><small>${r.imei_source === "photo" ? VG.t("imei_from_photo") : VG.t("entered_imei")}</small>`
+      : `<small>${VG.t("imei_not_found")}</small>`;
+    return `<tr><td><small>${VG.esc(r.device_file || r.folder)}</small></td><td class="mono">${imeiCell}</td>
       <td>${VG.badge(r.status, st)}<br><small>${VG.esc((r.reasons || []).join(", "))}</small><br><small>${VG.esc(msg || "")}</small></td>
       <td>${slotCell(r, "device")}</td><td>${slotCell(r, "scan")}</td>
       ${job.has_truth ? `<td><small>${r.truth ? VG.esc(`${r.truth.final} (${r.truth.device} / ${r.truth.scan})`) : "—"}</small></td>
