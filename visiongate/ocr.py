@@ -29,9 +29,9 @@ def _get():
     return _engine
 
 
-def _det_scale(h: int, w: int) -> float:
-    if max(h, w) > DET_MAX_SIDE:
-        return DET_MAX_SIDE / max(h, w)
+def _det_scale(h: int, w: int, det_max: int = DET_MAX_SIDE) -> float:
+    if max(h, w) > det_max:
+        return det_max / max(h, w)
     if min(h, w) < DET_MIN_SIDE:
         return DET_MIN_SIDE / min(h, w)
     return 1.0
@@ -45,9 +45,10 @@ def _angle(box: np.ndarray) -> float:
     return min(ang, 180 - ang)
 
 
-def read(img: np.ndarray) -> list[dict]:
+def read(img: np.ndarray, det_max: int = DET_MAX_SIDE) -> list[dict]:
+    """det_max меньше — быстрее, но находятся только крупные надписи (для обзора всего кадра)."""
     h, w = img.shape[:2]
-    s = _det_scale(h, w)
+    s = _det_scale(h, w, det_max)
     small = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC) \
         if s != 1 else img
     with _lock:  # движок не потокобезопасен

@@ -57,6 +57,7 @@ function evidenceBlock(slot, res) {
       <dt>${VG.t("ev_text_imei")}</dt><dd class="mono">${cands.map(VG.esc).join("<br>") || "—"}</dd>
       <dt>${VG.t("ev_imei_lines")}</dt><dd class="mono">${ev.imei_lines.map(l => VG.esc(l.text) + (l.touches_edge ? ` <b>[${VG.t("edge")}]</b>` : "")).join("<br>") || "—"}</dd>
       <dt>${VG.t("ev_regions")}</dt><dd>${ev.barcode_regions.length}${ev.barcode_regions.some(r => r.touches_edge) ? ` (${VG.t("at_edge")})` : ""}</dd>
+      ${ev.box_top ? `<dt>${VG.t("ev_top")}</dt><dd>${ev.box_top.found === null ? "—" : ev.box_top.found ? `${VG.t("yes")} («${VG.esc(ev.box_top.text)}»)` : VG.t("no")} <small>(${VG.t("hint_only")})</small></dd>` : ""}
       <dt>${VG.t("ev_words")}</dt><dd>${ev.label_words.join(", ") || "—"}</dd>
       <dt>${VG.t("ev_ui")}</dt><dd>${ev.ui_hits.map(VG.esc).join(", ") || "—"}</dd>
       <dt>${VG.t("ev_lum")}</dt><dd>${ev.luminance.mean.toFixed(0)}</dd>

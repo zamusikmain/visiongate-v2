@@ -57,8 +57,6 @@ MSG = {
                    "The screen-photo check failed ({err}) — a human check is needed."),
     "vlm_screen": ("Модель подозревает фото экрана другого устройства — нужна проверка человеком.",
                    "The model suspects a photo of another device's screen — a human check is needed."),
-    "no_top": ("Не удалось подтвердить, что виден верх коробки с названием модели.",
-               "Could not confirm that the top of the box with the model name is visible."),
     "invalid_entry": ("Не проверялось: введён некорректный IMEI.", "Not checked: the entered IMEI is invalid."),
     "invalid_seen": (" На фото распознано: {read}.", " Recognised in the photo: {read}."),
     "cross_mismatch": ("IMEI на фото коробки ({dev}) и на скане этикетки ({scan}) не совпадают — "
@@ -208,9 +206,9 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None) -> d
         else:
             out.update(status="review", suspected="PHOTO_OF_SCREEN")
             _set_msg(out, "vlm_screen")
-    elif slot == "device" and vlm.get("box_top") is False and fast["status"] == "ok":
-        out["status"] = "review"
-        _set_msg(out, "no_top")
+    # «Виден верх коробки» в решении НЕ участвует: VLM отвечала «да» почти на любое фото, а OCR-надпись
+    # «Galaxy» на угловых фото с водяным знаком находилась на 1 из 5 одобренных — оба признака ненадёжны.
+    # Признак из OCR показывается проверяющему как подсказка (evidence.box_top).
     return out
 
 

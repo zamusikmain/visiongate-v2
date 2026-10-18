@@ -8,7 +8,7 @@ import numpy as np
 
 from . import barcode, imaging, imei, ocr
 
-EVIDENCE_VERSION = 4
+EVIDENCE_VERSION = 6
 
 _LABEL_WORDS = ("IMEI", "SM-", "EID", "S/N", "MODEL", "МОДЕЛЬ", "ЦВЕТ", "COLOR", "MADE IN",
                 "ИЗГОТОВ", "СТРАНА", "РАЗМЕР", "ВЕС")
@@ -70,6 +70,29 @@ def barcode_regions(img: np.ndarray) -> list[dict]:
     return out
 
 
+# Название модели на верхней грани коробок Samsung: «Galaxy …». Допускаем типичные ошибки OCR (4/A, V/Y, 1/l).
+_GALAXY = re.compile(r"G[A4][L1I][A4][XK][YV]")
+def box_top(lines: list[dict], full_frame: bool) -> dict:
+    """Подсказка для проверяющего (в решении не участвует): на кадре есть надпись «Galaxy»,
+    заметно крупнее текста этикетки. Только по уже прочитанным строкам всего кадра — без лишнего OCR.
+    Надёжность низкая: на угловых фото с водяным знаком надпись читается редко."""
+    if not full_frame:
+        return {"found": None, "text": "", "height": 0, "label_text_height": 0}
+    digit_h = [ln["box"][3] - ln["box"][1] for ln in lines if len(imei.normalize(ln["text"])) >= 8]
+    ref = float(np.median(digit_h)) if digit_h else 0.0
+    best = None
+    for ln in lines:
+        if not _GALAXY.search(ln["text"].upper().replace(" ", "")):
+            continue
+        hgt = ln["box"][3] - ln["box"][1]
+        if ref and hgt < 1.8 * ref:
+            continue  # такого же размера, как текст этикетки, — это не надпись на верхней грани
+        if not best or hgt > best["height"]:
+            best = {"text": ln["text"], "height": hgt}
+    return {"found": best is not None, "text": best["text"] if best else "", "height": best["height"] if best else 0,
+            "label_text_height": round(ref, 1)}
+
+
 def _label_box(b, w, h):
     """Прямоугольник вокруг штрихкода IMEI, в котором должна поместиться вся этикетка."""
     x0, y0, x1, y1 = b["box"]
@@ -120,6 +143,7 @@ def collect(img: np.ndarray, slot: str) -> dict:
         "imei_lines": _imei_lines(lines, w, h),
         "cut_lines": cut_lines,
         "barcode_regions": barcode_regions(img),
+        "box_top": box_top(lines, full_frame=(mode != "crop")) if slot == "device" else None,
         "label_words": sorted({k for k in _LABEL_WORDS if k in text_all}),
         "ui_hits": sorted(name for name, p in _UI_PATTERNS.items() if p.search(text_all)),
         "luminance": imaging.luminance_stats(imaging.resize_max(img, 800)),

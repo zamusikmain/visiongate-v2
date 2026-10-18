@@ -1,5 +1,6 @@
 # Окружение и кэши
 .venv/
+.venv-probe/
 __pycache__/
 *.pyc
 .claude/
