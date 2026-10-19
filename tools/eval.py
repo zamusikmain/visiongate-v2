@@ -167,6 +167,14 @@ def main():
         synth.append(("РАЗНЫЕ УСТРОЙСТВА", f"{c['imei']} + скан {other['imei']}", c["imei"], r["final"]["status"],
                       r["final"]["reasons"], r["final"]["status"] == "REJECTED" and "IMEI_MISMATCH" in r["final"]["reasons"],
                       r["final"]["status"] not in ("APPROVED", "PRELIMINARY")))
+    for c in approved:
+        # одно и то же фото в обоих слотах → «На ручную проверку» (с пояснением про дубль)
+        for which in ("device", "scan"):
+            dup = dict(c, device=c[which], scan=c[which])
+            r = run_case(dup, "" if args.photo_only else c["imei"], settings, args, cache)
+            st = r["final"]["status"]
+            synth.append(("ОДНО ФОТО В ОБА СЛОТА", f"{c['imei']} ({which} ×2)", c["imei"], st, r["final"]["reasons"],
+                          st == "REVIEW" and bool(r["final"].get("duplicate")), st not in ("APPROVED", "PRELIMINARY")))
     imei2_of = {} if args.photo_only else load_imei2(data)
     for c in approved:
         i2 = imei2_of.get(c["imei"])

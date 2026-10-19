@@ -22,6 +22,18 @@ def to_jpeg(img: np.ndarray, quality: int = 90) -> bytes:
     return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])[1].tobytes()
 
 
+def dhash(img: np.ndarray) -> str:
+    """Перцептивный difference-hash 64 бита (hex). Устойчив к пересжатию, изменению размера
+    и тонкому тексту водяного знака: кадр сводится к 9×8 пикселям яркости."""
+    g = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (9, 8), interpolation=cv2.INTER_AREA)
+    bits = (g[:, 1:] > g[:, :-1]).flatten()
+    return f"{int(''.join('1' if b else '0' for b in bits), 2):016x}"
+
+
+def dhash_distance(a: str, b: str) -> int:
+    return bin(int(a, 16) ^ int(b, 16)).count("1")
+
+
 def green_watermark_mask(img: np.ndarray) -> np.ndarray:
     """Маска ярко-зелёного текста водяного знака (дата/GPS/хеш внизу)."""
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)

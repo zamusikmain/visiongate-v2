@@ -2,7 +2,7 @@
 Ни одно правило не завязано на конкретные файлы датасета: только IMEI-логика, наличие/отсутствие
 признаков и общие свойства этикетки Samsung (IMEI1 + IMEI2 со штрихкодами).
 Все тексты — парами RU/EN: поле message (рус.) и message_en."""
-from . import imei
+from . import imaging, imei
 
 # Порядок = приоритет причины в итоговом статусе
 REASONS = {
@@ -77,6 +77,10 @@ MSG = {
                        "похоже, это разные устройства.",
                        "The IMEI on the box photo ({dev}) and on the label scan ({scan}) do not match — "
                        "they appear to be different devices."),
+    "duplicate": ("В оба слота загружено одно и то же фото. Для фото коробки и скана этикетки нужны два разных "
+                  "снимка — нужна проверка человеком.",
+                  "The same photo was uploaded to both slots. The box photo and the label scan must be two different "
+                  "shots — a human check is needed."),
     "final_ok": ("IMEI распознан на обоих фото и совпадает с введённым.",
                  "IMEI recognised on both photos and matches the entered one."),
     "final_prelim": ("IMEI распознан на обоих фото и совпадает с введённым. Идёт фоновая проверка на фото экрана — "
@@ -334,6 +338,26 @@ def _final(status, reasons, key=None, ru="", en="", **params):
     if key:
         ru, en = _t(key, **params)
     return {"status": status, "reasons": reasons, "message": ru, "message_en": en}
+
+
+DUPLICATE_MAX_DISTANCE = 6  # dHash, бит из 64: то же фото после пересжатия/уменьшения — 0–1, разные фото датасета — от 16
+
+
+def is_duplicate(ev_dev: dict, ev_scan: dict) -> bool:
+    """Одно и то же (или почти идентичное) изображение в обоих слотах."""
+    a, b = ev_dev.get("dhash"), ev_scan.get("dhash")
+    return bool(a and b) and imaging.dhash_distance(a, b) <= DUPLICATE_MAX_DISTANCE
+
+
+def with_duplicate(final: dict, duplicate: bool) -> dict:
+    """Одно фото в обоих слотах: «Отклонено» остаётся (там уже есть конкретный дефект, пояснение дополняется),
+    любой другой итог — «На ручную проверку»."""
+    if not duplicate:
+        return final
+    ru, en = _t("duplicate")
+    if final["status"] == "REJECTED":
+        return dict(final, message=f"{ru} {final['message']}", message_en=f"{en} {final['message_en']}", duplicate=True)
+    return {"status": "REVIEW", "reasons": [], "message": ru, "message_en": en, "duplicate": True}
 
 
 def combine(slots: dict, entered: str, phase: str, settings: dict, cross: dict | None = None,

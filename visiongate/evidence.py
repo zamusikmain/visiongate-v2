@@ -8,7 +8,7 @@ import numpy as np
 
 from . import barcode, imaging, imei, ocr
 
-EVIDENCE_VERSION = 7
+EVIDENCE_VERSION = 8
 
 _LABEL_WORDS = ("IMEI", "SM-", "EID", "S/N", "MODEL", "МОДЕЛЬ", "ЦВЕТ", "COLOR", "MADE IN",
                 "ИЗГОТОВ", "СТРАНА", "РАЗМЕР", "ВЕС")
@@ -199,6 +199,7 @@ def collect(img: np.ndarray, slot: str) -> dict:
         "cut_lines": cut_lines,
         "barcode_regions": barcode_regions(img),
         "box_top": box_top(lines, full_frame=(mode != "crop")) if slot == "device" else None,
+        "dhash": imaging.dhash(img),
         "label_words": sorted({k for k in _LABEL_WORDS if k in text_all}),
         "ui_hits": ui_hits,
         "ui_proof": ui_proof,

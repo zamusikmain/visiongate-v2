@@ -11,6 +11,7 @@ def _decide(ev: dict, entered: str, settings: dict, phase: str, vr: dict | None 
     """Возвращает (slots, cross, final, imei, source). source: entered | photo | none."""
     def slot(s, target, mode):
         return decision.decide_slot(ev[s], target, s, vr[s] if vr else None, mode=mode)
+    duplicate = decision.is_duplicate(ev["device"], ev["scan"])  # одно фото в обоих слотах
     if entered:
         if imei.is_valid_imei(entered):
             slots = {s: slot(s, entered, "entered") for s in SLOTS}
@@ -18,11 +19,12 @@ def _decide(ev: dict, entered: str, settings: dict, phase: str, vr: dict | None 
         else:
             slots = {s: decision.invalid_entry_slot(ev[s]) for s in SLOTS}
             cross = None
-        return slots, cross, decision.combine(slots, entered, phase, settings, cross), entered, "entered"
+        final = decision.with_duplicate(decision.combine(slots, entered, phase, settings, cross), duplicate)
+        return slots, cross, final, entered, "entered"
     anchor = decision.pick_anchor(ev["device"], ev["scan"])
     slots = {s: slot(s, anchor, "photo") for s in SLOTS}
     cross = decision.cross_check(slots, anchor, mode="photo")
-    final = decision.combine(slots, anchor, phase, settings, cross, mode="photo")
+    final = decision.with_duplicate(decision.combine(slots, anchor, phase, settings, cross, mode="photo"), duplicate)
     return slots, cross, final, anchor, "photo" if anchor else "none"
 
 
