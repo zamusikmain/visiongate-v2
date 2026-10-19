@@ -67,6 +67,10 @@ function Test-AppReady([int]$p) {
         $req = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$p/api/health")
         $req.Proxy = $null
         $req.Timeout = 3000
+        # New connection every time: with keep-alive .NET reuses the first socket, and if that one went
+        # to another program on the same port (e.g. Docker on 0.0.0.0/::), our server is never seen.
+        $req.KeepAlive = $false
+        $req.ConnectionGroupName = [guid]::NewGuid().ToString()
         $req.GetResponse().Close()
         return $false  # 200 without a password: not our protected app
     } catch {
@@ -81,6 +85,23 @@ function Test-AppReady([int]$p) {
 }
 
 Stop-App  # leftovers of a previous run would hold the port
+Start-Sleep -Milliseconds 500
+
+# The port must be free on ALL addresses: Windows lets us bind 127.0.0.1:N even when another program
+# (e.g. a Docker container) listens on 0.0.0.0:N / [::]:N, and then requests may reach that program.
+function Test-PortBusy([int]$p) {
+    return [bool](Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
+}
+if (Test-PortBusy $Port) {
+    $owner = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName } |
+        Select-Object -Unique
+    $free = ($Port + 1)..($Port + 50) | Where-Object { -not (Test-PortBusy $_) } | Select-Object -First 1
+    if (-not $free) { Write-Host "Port $Port and the next 50 ports are busy. Use -Port <free port>." -ForegroundColor Red; exit 1 }
+    Write-Host "Port $Port is already used by: $($owner -join ', '). Using port $free instead." -ForegroundColor Yellow
+    $Port = $free
+}
+
 $app = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "tools\serve_public.py", "--port", "$Port" `
     -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err" -WindowStyle Hidden -PassThru
 Remove-Item Env:\VG_PUBLIC_PASSWORD
