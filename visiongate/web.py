@@ -197,10 +197,14 @@ def get_batch(job_id: str):
 
 
 @app.get("/api/batches/{job_id}/xlsx")
-def batch_xlsx(job_id: str, lang: str = "ru"):
+def batch_xlsx(job_id: str, lang: str = "ru", format: str = ""):
     job = batch.get(job_id)
     if not job:
         raise HTTPException(404, "Пакет не найден")
+    if format == "validation":  # режим экзамена: формат VALIDATION.xlsx, строго Approved/Rejected
+        return Response(batch.to_validation_xlsx(job),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="VALIDATION_result_{job_id}.xlsx"'})
     return Response(batch.to_xlsx(job, lang), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="visiongate_{job_id}.xlsx"'})
 

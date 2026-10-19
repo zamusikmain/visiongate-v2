@@ -10,7 +10,7 @@ import uuid
 import zipfile
 from pathlib import PurePosixPath
 
-from . import decision, imei, pipeline, validation
+from . import decision, exam, imei, pipeline, validation
 from .config import BATCHES, load_settings
 
 log = logging.getLogger("visiongate.batch")
@@ -114,7 +114,7 @@ def _truth_for(truth: dict, *nums: str):
     return None
 
 
-def _row(pair, res, truth, error=None) -> dict:
+def _row(pair, res, truth, error=None, date=None) -> dict:
     num = (res or {}).get("imei") or ""
     t = _truth_for(truth, pair["imei_name"], num) if truth else None
     row = {"folder": pair["folder"], "imei": num, "imei_source": (res or {}).get("imei_source", ""),
@@ -130,8 +130,14 @@ def _row(pair, res, truth, error=None) -> dict:
                                                                         "read_imeis", "barcode_imeis", "screen_check")},
                                   display=decision.slot_display(res["slots"][s]))
                           for s in pipeline.SLOTS})
+        row["exam"] = exam.resolve(res)
     else:
         row.update(status="ERROR", reasons=[], message=error, message_en=error, slots={})
+        # фото не открылось / не обработалось: кейс не может быть одобрен
+        row["exam"] = {"final": exam.REJECTED, "confidence": "low", "device": exam.OK, "scan": exam.OK,
+                       "reason": f"Processing error: {error}", "note": "processing error"}
+    row["exam_imei"] = pair["imei_name"] or num
+    row["date"] = exam.fmt_date(date) if date else ""
     if t:
         ok_pred = row["status"] in ("APPROVED", "PRELIMINARY")
         row["agree"] = None if row["status"] in ("REVIEW", "ERROR") else \
@@ -156,12 +162,13 @@ def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool, use_name_imei: b
             imgs = {s: pipeline.load(raw[s]) for s in pipeline.SLOTS}
             # по умолчанию IMEI из имён не используется: номер читается с фото, фото сверяются между собой
             res = pipeline.fast_check(imgs, pair["imei_name"] if use_name_imei else "", settings)
-            if res["needs_vlm"]:
+            # VLM только там, где без неё кейс стал бы Approved (иначе кейс уже Rejected — экономия времени)
+            if res["needs_vlm"] and exam.resolve(res)["final"] == exam.APPROVED:
                 job["stage"] = f"VLM: {PurePosixPath(pair['device']).name}"
                 res = pipeline.vlm_check(imgs, res, settings, raw=raw)
             if not use_vlm and res["final"]["status"] == "APPROVED":
                 res["final"]["status"] = "PRELIMINARY"  # проверка экрана не выполнялась
-            row = _row(pair, res, truth)
+            row = _row(pair, res, truth, date=zf.getinfo(pair["device"]).date_time)
         except Exception as e:
             log.exception("batch %s: %s", job_id, pair["key"])
             row = _row(pair, None, truth, error=str(e)[:300])
@@ -269,3 +276,17 @@ def to_xlsx(job: dict, lang: str = "ru") -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def to_validation_xlsx(job: dict) -> bytes:
+    """Выгрузка в формате VALIDATION.xlsx (режим экзамена: строго Approved/Rejected)."""
+    rows = []
+    for r in job["rows"]:
+        e = r.get("exam") or {}
+        rows.append({"imei": r.get("exam_imei") or r.get("imei") or "", "date": r.get("date", ""),
+                     "device": e.get("device", exam.OK), "scan": e.get("scan", exam.OK),
+                     "final": e.get("final", exam.REJECTED), "reason": e.get("reason", ""),
+                     "confidence": e.get("confidence", "low"), "note": e.get("note", ""),
+                     "imei_source": r.get("imei_source", ""), "device_file": r.get("device_file", ""),
+                     "scan_file": r.get("scan_file", "")})
+    return exam.write_xlsx(rows)

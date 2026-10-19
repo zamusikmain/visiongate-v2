@@ -82,7 +82,7 @@ function render(job) {
   }
   document.querySelector("#out").innerHTML = `<div class="card">
     <div class="row" style="justify-content:space-between"><b>${VG.esc(job.filename)}</b>
-      ${!running ? `<a class="btn" href="/api/batches/${job.id}/xlsx?lang=${VG.lang}">${VG.t("download_xlsx")}</a>` : ""}</div>
+      ${!running ? `<span class="row"><a class="btn" href="/api/batches/${job.id}/xlsx?format=validation"><b>${VG.t("download_validation")}</b></a> <a class="btn" href="/api/batches/${job.id}/xlsx?lang=${VG.lang}">${VG.t("download_xlsx")}</a></span>` : ""}</div>
     <div class="progress"><div style="width:${pct}%"></div></div>
     <p class="hint">${running ? `<span class="spinner"></span> ` : ""}${VG.t("batch_progress", { done: job.done, total: job.total })}${job.stage ? " · " + VG.esc(job.stage) : ""}${!running ? " · " + VG.t("batch_done") : ""}</p>
     ${summary}

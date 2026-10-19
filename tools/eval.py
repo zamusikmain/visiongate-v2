@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout.reconfigure(encoding="utf-8")
 
-from visiongate import decision, evidence, imaging, imei, pipeline, validation, vlm  # noqa: E402
+from visiongate import decision, evidence, exam, imaging, imei, pipeline, validation, vlm  # noqa: E402
 from visiongate.config import REPORTS, load_settings  # noqa: E402
 
 # IMEI2, напечатанные на этикетках одобренных кейсов (прочитаны глазами с фото) — для теста «ввели IMEI2».
@@ -95,6 +95,29 @@ def cp_upper(k: int, n: int, conf: float = 0.95) -> float:
         cdf = sum(comb(n, i) * p ** i * (1 - p) ** (n - i) for i in range(k + 1))
         lo, hi = (p, hi) if cdf > alpha else (lo, p)
     return hi
+
+
+def _exam_metrics(results) -> dict:
+    tmpl = {v: k for k, v in exam.TEMPLATE_REASON.items()}
+    final_ok, slot_hit, slot_total, extra, low = 0, 0, 0, 0, 0
+    wrong = []
+    for c, r in results:
+        e = exam.resolve(r)
+        low += e["confidence"] == "low"
+        truth_final = exam.APPROVED if c["truth"]["final"] == "APPROVED" else exam.REJECTED
+        if e["final"] == truth_final:
+            final_ok += 1
+        else:
+            wrong.append(c["imei"][-4:])
+        for s, col in (("device", "device"), ("scan", "scan")):
+            got = [] if e[col] == exam.OK else [tmpl.get(x.strip(), x.strip()) for x in e[col].split(",")]
+            t = c["truth"][s]
+            slot_total += 1
+            if (t == "OK" and not got) or (t != "OK" and t in got):
+                slot_hit += 1
+            extra += sum(1 for g in got if g != t)
+    return {"final_correct": final_ok, "cases": len(results), "low_confidence": low, "wrong_cases": wrong,
+            "slot_truth_found": slot_hit, "slots": slot_total, "extra_errors_listed": extra}
 
 
 def slot_pred(d: dict) -> str:
@@ -231,6 +254,8 @@ def main():
                                   if r["slots"][s]["status"] == "ok" and r["slots"][s].get("screen_check") != "passed"),
         "ui_screen_rejects": sum(1 for _, r in results for s in pipeline.SLOTS
                                  if r["slots"][s].get("screen_check") == "ui_detected"),
+        # режим экзамена: строго Approved/Rejected, ошибки по фото в значениях шаблона VALIDATION.xlsx
+        "exam": _exam_metrics(results),
         "current": {
             "app_ok": sum(v for (t, p), v in final_counts.items() if t == "APPROVED" and p in ("APPROVED", "PRELIMINARY")),
             "app_review": final_counts.get(("APPROVED", "REVIEW"), 0),
