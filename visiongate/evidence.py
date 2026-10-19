@@ -8,7 +8,7 @@ import numpy as np
 
 from . import barcode, imaging, imei, ocr
 
-EVIDENCE_VERSION = 8
+EVIDENCE_VERSION = 9
 
 _LABEL_WORDS = ("IMEI", "SM-", "EID", "S/N", "MODEL", "МОДЕЛЬ", "ЦВЕТ", "COLOR", "MADE IN",
                 "ИЗГОТОВ", "СТРАНА", "РАЗМЕР", "ВЕС")
@@ -87,6 +87,26 @@ def _imei_lines(lines, w, h):
         out.append({"text": ln["text"], "digits": len(imei.normalize(ln["text"])),
                     "touches_edge": x0 < mx or y0 < my or x1 > w - mx or y1 > h - my,
                     "box": ln["box"]})
+    return out
+
+
+# Строки заводской наклейки Samsung, которые узнаются даже при искажённом OCR (модель OCR латинская,
+# кириллицу читает двойниками): код модели (SM-A175F…; OCR путает M/N/U) и многоязычные поля
+# «Түсі/Цвет/Rangi: …» — слеши OCR сохраняет, даже когда буквы искажены.
+_MODEL_CODE = re.compile(r"\bS[MNU]-?[A-Z0-9]{4,}")
+_MULTI_FIELD = re.compile(r"[^\W\d_]{2,}\s*/\s*[^\W\d_]{2,}\s*/\s*[^\W\d_]{2,}")
+
+
+def _label_lines(lines, w, h):
+    """Строки, похожие на текст наклейки, и касаются ли они края кадра (признак обрезки)."""
+    mx, my = w * 0.012, h * 0.008
+    out = []
+    for ln in lines:
+        t = ln["text"]
+        if not (_MODEL_CODE.search(t.upper()) or _MULTI_FIELD.search(t)):
+            continue
+        x0, y0, x1, y1 = ln["box"]
+        out.append({"text": t, "touches_edge": x0 < mx or y0 < my or x1 > w - mx or y1 > h - my})
     return out
 
 
@@ -196,6 +216,7 @@ def collect(img: np.ndarray, slot: str) -> dict:
         "ocr_lines": lines,
         "candidates": [c.to_dict() for c in cands],
         "imei_lines": _imei_lines(lines, w, h),
+        "label_lines": _label_lines(lines, w, h),
         "cut_lines": cut_lines,
         "barcode_regions": barcode_regions(img),
         "box_top": box_top(lines, full_frame=(mode != "crop")) if slot == "device" else None,

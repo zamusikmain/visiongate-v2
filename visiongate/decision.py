@@ -157,7 +157,8 @@ def _cut_evidence(ev) -> bool:
     """Строка «IMEI…» или длинная цепочка цифр упирается в край кадра.
     Края областей штрихкодов не используем: по правилам правая часть этикетки (дублирующий блок,
     EID) может быть обрезана, и на одобренных фото такие полосы часто уходят за край."""
-    return bool(ev.get("cut_lines")) or any(l["touches_edge"] for l in ev.get("imei_lines", []))
+    return bool(ev.get("cut_lines")) or any(l["touches_edge"] for l in ev.get("imei_lines", [])) \
+        or any(l["touches_edge"] for l in ev.get("label_lines", []))  # строка наклейки (модель, поля) у края
 
 
 def _pair_complete(ev, matched: str) -> bool:
@@ -235,7 +236,7 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None, mode
     foreign = sorted(x for x in reliable if x != entered and not imei.same_serial(entered, x)
                      and imei.hamming(entered, x) > 2)
     label_present = bool(bars) or bool(_LABEL_WORDS & set(ev["label_words"])) \
-        or len(ev.get("barcode_regions", [])) >= 2 or bool(ev.get("imei_lines"))
+        or len(ev.get("barcode_regions", [])) >= 2 or bool(ev.get("imei_lines")) or bool(ev.get("label_lines"))
     dark = ev["luminance"]["mean"] < DARK_MEAN
     ui = ev.get("ui_hits", [])
     info = {"read_imeis": _shown(all_imeis, reliable, entered), "reliable_imeis": sorted(reliable),
