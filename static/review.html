@@ -41,14 +41,14 @@ async function loadList() {
   document.querySelectorAll("#list tr[data-id]").forEach(tr => tr.onclick = () => show(+tr.dataset.id));
 }
 
-function evidenceBlock(slot, res) {
+function evidenceBlock(slot, res, pending) {
   const ev = res?.evidence?.[slot]; const d = res?.slots?.[slot]; const v = res?.vlm?.[slot];
   if (!ev || !d) return "";
   const cands = ev.candidates.filter(c => c.luhn).map(c => `${c.digits}${c.has_token ? " (IMEI)" : ""}`);
   const vlmTxt = v ? (v.ok ? `${VG.t("screen")}: <b>${yn(v.screen)}</b>, ${VG.t("box_top")}: ${v.box_top === null ? "?" : yn(v.box_top)}, ${v.seconds} ${VG.t("sec")}${v.cached ? " (cache)" : ""}`
     : `<span class="err">${VG.esc(v.error)}</span>`) : VG.t("not_run");
   return `<div class="card">
-    <div class="row" style="justify-content:space-between"><h2 style="margin:0">${VG.slotName(slot)}</h2>${VG.badge(d.status, VG.slotStatus(d.status))}</div>
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">${VG.slotName(slot)}</h2>${VG.badge(VG.slotView(d, pending), VG.slotStatus(VG.slotView(d, pending)))}</div>
     <p>${VG.esc(VG.pick(d, "message"))}${d.suspected ? ` <small>(${VG.t("suspicion")}: ${VG.esc(d.suspected)})</small>` : ""}</p>
     <div class="photos"><a href="/api/submissions/${current}/photo/${slot}" target="_blank"><img src="/api/submissions/${current}/photo/${slot}" alt=""></a></div>
     <dl class="kv" style="margin-top:10px">
@@ -72,6 +72,7 @@ async function show(id) {
   current = id;
   document.querySelectorAll("#list tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.id === id));
   const r = await VG.json(`/api/submissions/${id}?full=true`);
+  const pend = r.phase === "vlm_pending" || r.phase === "vlm_running";
   const opts = Object.entries(reasons).map(([k, v]) => `<option value="${k}">${k} — ${VG.esc(v[VG.lang].slice(0, 60))}</option>`).join("");
   document.querySelector("#detail").innerHTML = `
     <div class="card">
@@ -87,7 +88,7 @@ async function show(id) {
         <span id="saveMsg" class="hint"></span></div>
       ${r.manual_status ? `<p class="hint">${VG.t("already")}: ${r.manual_status}</p>` : ""}
     </div>
-    <div class="grid2">${evidenceBlock("device", r.result)}${evidenceBlock("scan", r.result)}</div>`;
+    <div class="grid2">${evidenceBlock("device", r.result, pend)}${evidenceBlock("scan", r.result, pend)}</div>`;
 }
 
 async function decide(status) {

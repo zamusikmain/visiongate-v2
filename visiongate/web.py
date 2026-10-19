@@ -74,6 +74,8 @@ def _public(rec: dict) -> dict:
     for s, d in (res.get("slots") or {}).items():
         ev = (res.get("evidence") or {}).get(s, {})
         slots[s] = {"status": d["status"], "reason": d.get("reason"), "message": d.get("message"),
+                    "screen_check": d.get("screen_check", "passed"),
+                    "display": decision.slot_display(d, pending=rec["phase"] in ("vlm_pending", "vlm_running")),
                     "message_en": d.get("message_en", d.get("message")),
                     "read_imeis": d.get("read_imeis", []), "matched_by": d.get("matched_by", []),
                     "barcodes": [b["text"] for b in ev.get("barcodes", [])]}

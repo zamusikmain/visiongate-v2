@@ -19,7 +19,7 @@ const I18N = {
     reviewer_decision: "Решение проверяющего", recognised_imei: "Распознанные IMEI", barcodes: "Штрихкоды",
     not_read: "не считан", match: "Совпадение", yes: "да", no: "нет", text: "текст", barcode: "штрихкод",
     slot_device: "Фото коробки", slot_scan: "Скан этикетки",
-    st_ok: "OK", st_reject: "Отклонено", st_review: "На ручную проверку", approved: "Одобрено", rejected: "Отклонено",
+    st_ok: "OK", st_reject: "Отклонено", st_review: "На ручную проверку", st_unchecked: "Не проверено на фото экрана", st_pending: "Проверяется на фото экрана", approved: "Одобрено", rejected: "Отклонено",
     tab_todo: "Ждут разбора", tab_all: "Все", tab_prelim: "Предварительно", tab_review: "На ручную",
     col_no: "№", col_imei: "IMEI", col_status: "Статус", col_time: "Время", empty: "Пусто", pick_left: "Выберите заявку слева.",
     manual: "вручную", reason_for_reject: "Причина (для отклонения)", comment: "Комментарий", approve: "✓ Одобрить",
@@ -77,7 +77,7 @@ const I18N = {
     reviewer_decision: "Reviewer decision", recognised_imei: "Recognised IMEI", barcodes: "Barcodes",
     not_read: "not read", match: "Match", yes: "yes", no: "no", text: "text", barcode: "barcode",
     slot_device: "Box photo", slot_scan: "Label scan",
-    st_ok: "OK", st_reject: "Rejected", st_review: "Manual review", approved: "Approved", rejected: "Rejected",
+    st_ok: "OK", st_reject: "Rejected", st_review: "Manual review", st_unchecked: "Not checked for screen photo", st_pending: "Screen-photo check in progress", approved: "Approved", rejected: "Rejected",
     tab_todo: "To review", tab_all: "All", tab_prelim: "Preliminary", tab_review: "Manual review",
     col_no: "#", col_imei: "IMEI", col_status: "Status", col_time: "Time", empty: "Empty", pick_left: "Select a submission on the left.",
     manual: "manual", reason_for_reject: "Reason (for rejection)", comment: "Comment", approve: "✓ Approve",
@@ -161,6 +161,11 @@ const VG = {
   esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); },
   slotName(slot) { return VG.t(`slot_${slot}`); },
   slotStatus(st) { return VG.t(`st_${st}`); },
+  // «OK» показываем только если слот прошёл проверку на фото экрана
+  slotView(d, pending) {
+    if (d && d.status === "ok" && (d.screen_check || "passed") !== "passed") return pending ? "pending" : "unchecked";
+    return d ? d.status : "";
+  },
   badge(status, text, big) { return `<span class="badge s-${VG.esc(status)}${big ? " big-status" : ""}">${VG.esc(text)}</span>`; },
   async json(url, opts) {
     const r = await fetch(url, opts);

@@ -219,6 +219,10 @@ def main():
         "false_reject_ci_upper": round(cp_upper(false_reject, n_app) * 100),
         "auto_decided": auto, "auto_correct": auto_ok,
         "slot_reason_exact": reason_exact, "slot_total": slot_total,
+        "ok_slots_unchecked": sum(1 for _, r in results for s in pipeline.SLOTS
+                                  if r["slots"][s]["status"] == "ok" and r["slots"][s].get("screen_check") != "passed"),
+        "ui_screen_rejects": sum(1 for _, r in results for s in pipeline.SLOTS
+                                 if r["slots"][s].get("screen_check") == "ui_detected"),
         "current": {
             "app_ok": sum(v for (t, p), v in final_counts.items() if t == "APPROVED" and p in ("APPROVED", "PRELIMINARY")),
             "app_review": final_counts.get(("APPROVED", "REVIEW"), 0),
@@ -263,6 +267,8 @@ def render(sm, results, final_counts, slot_status, reason_counts, synth) -> str:
             cls = "good" if ok else ("warn" if p == "REVIEW" else "bad")
             v = (r.get("vlm") or {}).get(s)
             vtxt = f"<br><small>VLM: экран={'да' if v['screen'] else 'нет'}, {v['seconds']} с</small>" if v and v.get("ok") else ""
+            if p == "OK" and d.get("screen_check", "passed") != "passed":
+                p = "OK, не проверено на фото экрана"
             return (f"<td class='{cls}'><b>{e(p)}</b> <small>(эталон {e(c['truth'][s])})</small><br>"
                     f"<small>{e(d['message'])}</small><br><small class='mono'>IMEI: {e(', '.join(d.get('read_imeis') or []) or '—')}</small>{vtxt}</td>")
         f = r["final"]["status"]

@@ -8,21 +8,71 @@ import numpy as np
 
 from . import barcode, imaging, imei, ocr
 
-EVIDENCE_VERSION = 6
+EVIDENCE_VERSION = 7
 
 _LABEL_WORDS = ("IMEI", "SM-", "EID", "S/N", "MODEL", "МОДЕЛЬ", "ЦВЕТ", "COLOR", "MADE IN",
                 "ИЗГОТОВ", "СТРАНА", "РАЗМЕР", "ВЕС")
 # Признаки интерфейса телефона на снимке экрана — по ТИПАМ, без привязки к конкретным номерам/странам.
-# На этикетке Samsung ничего из этого не печатается. Сработавший тип — только повод для ручной проверки.
-_UI_PATTERNS = {
-    "номер телефона": re.compile(r"\+\s?\d{1,3}[\s(.-]{0,2}\d{2,4}[\s).-]{0,2}\d{2,4}[\s.-]?\d{2,4}"),
-    "заряд батареи": re.compile(r"\b\d{1,3}\s?%"),
-    "интерфейс мессенджера": re.compile(
-        r"ОТВЕТИТЬ|ПЕРЕСЛАТЬ|ТОЛЬКО ЧТО|В СЕТИ|БЫЛ\(А\)|СООБЩЕНИ|ГАЛЕРЕ|ФОТО\b|"   # ru
-        r"ЖАУАП|ХАБАРЛАМА|"                                                        # kk
-        r"JAVOB|XABAR|"                                                            # uz
-        r"\bREPLY\b|FORWARD|ONLINE|LAST SEEN|TYPING|MESSAGE|GALLERY|\bPHOTO\b"),   # en
-}
+# На этикетке Samsung ничего из этого не печатается. Учитываются OCR-искажения: «+» часто читается как «4»,
+# «%» — как «3», кириллица (модель OCR китайско-английская) — латинскими двойниками.
+_PHONE_FMT = re.compile(r"\+\s?\d{1,3}[\s(.-]{0,2}\d{2,4}[\s).-]{0,2}\d{2,4}[\s.-]?\d{2,4}")
+_BATTERY = re.compile(r"(?<!\d)\d{1,3}\s?%")
+_CLOCK = re.compile(r"(?<!\d)([01]?\d|2[0-3]):[0-5]\d(?!\d)")   # только с двоеточием: даты с точками — не время
+_MESSENGER = re.compile(
+    r"ОТВЕТИТЬ|ПЕРЕСЛАТЬ|ТОЛЬКО ЧТО|В СЕТИ|БЫЛ\(А\)|СООБЩЕНИ|ГАЛЕРЕ|ФОТО\b|"   # ru
+    r"ЖАУАП|ХАБАРЛАМА|"                                                        # kk
+    r"JAVOB|XABAR|"                                                            # uz
+    r"\bREPLY\b|FORWARD|ONLINE|LAST SEEN|TYPING|MESSAGE|GALLERY|\bPHOTO\b")    # en
+WATERMARK_GREEN = 0.05  # доля ярко-зелёных пикселей в рамке строки: выше — это текст водяного знака
+
+
+def _ean_ok(d: str) -> bool:
+    """Контрольная цифра EAN-13 / UPC-A (12): цифры штрихкода товара с наклейки — не телефон."""
+    if len(d) not in (12, 13) or not d.isdigit():
+        return False
+    body, check = d[:-1], int(d[-1])
+    s = sum(int(c) * (3 if i % 2 == 0 else 1) for i, c in enumerate(reversed(body)))
+    return (10 - s % 10) % 10 == check
+
+
+def _green_share(mask: np.ndarray, box) -> float:
+    x0, y0, x1, y1 = (max(0, int(v)) for v in box)
+    m = mask[y0:y1, x0:x1]
+    return float((m > 0).mean()) if m.size else 0.0
+
+
+def ui_signals(lines: list[dict], img: np.ndarray, label_top: float | None) -> tuple[list[str], list[dict]]:
+    """Типы признаков интерфейса телефона и строки-доказательства. Строки водяного знака исключаются.
+    label_top — верхняя граница текста наклейки (y), если наклейка найдена."""
+    h = img.shape[0]
+    mask = imaging.green_watermark_mask(img)
+    found, proof = set(), []
+    for ln in lines:
+        t = ln["text"].strip()
+        if not t or _green_share(mask, ln["box"]) > WATERMARK_GREEN:
+            continue
+        up = t.upper()
+        compact = re.sub(r"\s", "", t)
+        digits = imei.normalize(t)
+        kinds = []
+        if _PHONE_FMT.search(t) or (re.fullmatch(r"[+4]?\d{10,12}", compact) and 11 <= len(digits) <= 13
+                                    and not _ean_ok(digits) and not imei.is_valid_imei(digits)):
+            kinds.append("phone")
+        if _BATTERY.search(t):
+            kinds.append("battery")
+        if _CLOCK.search(t):
+            kinds.append("clock")
+        if _MESSENGER.search(up):
+            kinds.append("messenger")
+        # строка состояния: короткая строка из цифр (время/заряд, «%» и «:» OCR часто теряет)
+        # в верхней части кадра и выше текста наклейки
+        if (label_top is not None and re.fullmatch(r"[\d:%.]{4,9}", compact) and len(digits) >= 4
+                and ln["box"][3] < label_top and ln["box"][1] < 0.25 * h):
+            kinds.append("status_bar")
+        for k in kinds:
+            found.add(k)
+            proof.append({"kind": k, "text": t})
+    return sorted(found), proof
 _TOKEN = re.compile(r"(IMEI|IME|INEI|MEI|TNE)", re.I)
 
 
@@ -127,6 +177,11 @@ def collect(img: np.ndarray, slot: str) -> dict:
     for ln in lines:
         cands += imei.candidates_from_text(ln["text"], "ocr")
     text_all = " ".join(ln["text"] for ln in lines).upper()
+    # верх наклейки: самая верхняя строка со словами наклейки, токеном IMEI или длинным номером
+    label_ys = [ln["box"][1] for ln in lines
+                if any(k in ln["text"].upper() for k in _LABEL_WORDS) or _TOKEN.search(ln["text"])
+                or len(imei.normalize(ln["text"])) >= 14]
+    ui_hits, ui_proof = ui_signals(lines, img, min(label_ys) if label_ys else None)
     mx = w * 0.012
     # строки с длинной цепочкой цифр, упирающиеся в левый/правый край — признак обрезки
     cut_lines = [ln["text"] for ln in lines
@@ -145,7 +200,8 @@ def collect(img: np.ndarray, slot: str) -> dict:
         "barcode_regions": barcode_regions(img),
         "box_top": box_top(lines, full_frame=(mode != "crop")) if slot == "device" else None,
         "label_words": sorted({k for k in _LABEL_WORDS if k in text_all}),
-        "ui_hits": sorted(name for name, p in _UI_PATTERNS.items() if p.search(text_all)),
+        "ui_hits": ui_hits,
+        "ui_proof": ui_proof,
         "luminance": imaging.luminance_stats(imaging.resize_max(img, 800)),
         "timing": {"barcode": round(t_bar, 2), "ocr": round(t_ocr, 2)},
     }

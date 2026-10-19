@@ -30,6 +30,17 @@ STATUS = {
     "PROCESSING": ("Проверяется", "Processing"),
 }
 SLOT_NAME = {"device": ("Фото коробки", "Box photo"), "scan": ("Скан этикетки", "Label scan")}
+# Подпись статуса слота: «OK» — только если слот прошёл проверку на фото экрана
+SLOT_STATUS = {"ok": ("OK", "OK"), "review": ("На ручную", "Review"), "reject": ("Отклонено", "Rejected"),
+               "unchecked": ("Не проверено на фото экрана", "Not checked for screen photo"),
+               "pending": ("Проверяется на фото экрана", "Screen-photo check in progress")}
+
+
+def slot_display(d: dict, pending: bool = False) -> str:
+    """Ключ SLOT_STATUS для показа: ok без пройденной проверки экрана — unchecked/pending."""
+    if d.get("status") == "ok" and d.get("screen_check", "passed") != "passed":
+        return "pending" if pending else "unchecked"
+    return d.get("status", "")
 # совместимость со старыми импортами
 STATUS_RU = {k: v[0] for k, v in STATUS.items()}
 SLOT_RU = {k: v[0] for k, v in SLOT_NAME.items()}
@@ -40,6 +51,9 @@ MSG = {
                  "The IMEI in the photo ({read}) does not match the entered one ({entered})."),
     "ui_review": ("IMEI читается, но на фото есть элементы интерфейса телефона ({ui}) — возможна съёмка экрана.",
                   "The IMEI is readable, but phone UI elements are visible ({ui}) — possibly a photo of a screen."),
+    "ui_screen": ("Фото экрана другого устройства: на снимке интерфейс телефона ({ui}). "
+                  "Сфотографируйте саму коробку.",
+                  "Photo of another device's screen: phone interface is visible ({ui}). Please photograph the box itself."),
     "pair_review": ("IMEI читается, но не удалось подтвердить, что блок IMEI1 + IMEI2 со штрихкодами виден целиком.",
                     "The IMEI is readable, but it could not be confirmed that the IMEI1 + IMEI2 block is fully visible."),
     "barcode_review": ("Штрихкод совпадает с введённым IMEI, но цифры на этикетке не читаются уверенно — "
@@ -102,8 +116,20 @@ DARK_MEAN = 45  # средняя яркость 0–255 без зелёного 
 
 
 def _t(key, **p):
+    """Параметр-кортеж (ru, en) подставляется по языку, остальные — как есть."""
     ru, en = MSG[key] if key in MSG else REASONS[key]
-    return ru.format(**p), en.format(**p)
+    pick = lambda i: {k: (v[i] if isinstance(v, tuple) else v) for k, v in p.items()}  # noqa: E731
+    return ru.format(**pick(0)), en.format(**pick(1))
+
+
+UI_NAMES = {"phone": ("номер телефона", "phone number"), "battery": ("заряд батареи", "battery level"),
+            "clock": ("время в строке состояния", "status-bar clock"),
+            "status_bar": ("строка состояния", "status bar"), "messenger": ("интерфейс мессенджера", "messenger UI")}
+UI_REJECT_MIN = 2  # столько разных признаков интерфейса — фото экрана без сомнений
+
+
+def _ui_names(ui: list) -> tuple:
+    return (", ".join(UI_NAMES.get(u, (u, u))[0] for u in ui), ", ".join(UI_NAMES.get(u, (u, u))[1] for u in ui))
 
 
 def _slot(status, reason=None, key=None, extra_key=None, params=None, **extra):
@@ -211,15 +237,21 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None, mode
     info = {"read_imeis": _shown(all_imeis, reliable, entered), "reliable_imeis": sorted(reliable),
             "all_imeis": sorted(all_imeis), "barcode_imeis": sorted(bars),
             "matched": match_text or match_bar,
-            "matched_by": [s for s, ok in (("text", match_text), ("barcode", match_bar)) if ok]}
+            "matched_by": [s for s, ok in (("text", match_text), ("barcode", match_bar)) if ok],
+            # проверка на фото экрана: not_run (быстрая фаза / VLM не запускалась), ui_detected, passed,
+            # suspected, failed. Слот без passed не показывается пользователю как «OK».
+            "screen_check": "not_run", "ui_hits": list(ui)}
 
     # --- быстрая фаза ---
-    if not match_text and not match_bar and foreign and not sibling:
+    if len(ui) >= UI_REJECT_MIN:
+        # несколько разных признаков интерфейса телефона: фото экрана, даже если IMEI читается
+        fast = _slot("reject", "PHOTO_OF_SCREEN", "ui_screen", params={"ui": _ui_names(ui)}, **dict(info, screen_check="ui_detected"))
+    elif not match_text and not match_bar and foreign and not sibling:
         fast = _slot("reject", "IMEI_MISMATCH", k("mismatch"), params={"read": ", ".join(foreign), "entered": entered},
                      **info)
     elif match_text:
         if ui:
-            fast = _slot("review", None, "ui_review", params={"ui": ", ".join(ui)}, suspected="PHOTO_OF_SCREEN",
+            fast = _slot("review", None, "ui_review", params={"ui": _ui_names(ui)}, suspected="PHOTO_OF_SCREEN",
                          **info)
         elif slot == "scan" and not _pair_complete(ev, entered):
             # IMEI прочитан, но второй номер блока не подтверждён: обрезка или OCR не дочитал — не отклоняем
@@ -247,10 +279,14 @@ def decide_slot(ev: dict, entered: str, slot: str, vlm: dict | None = None, mode
     # --- фоновая фаза: учитываем VLM ---
     out = dict(fast, vlm=vlm)
     if not vlm.get("ok"):
+        out["screen_check"] = "failed"
         if fast["status"] == "ok":
             out["status"] = "review"
             _set_msg(out, "vlm_failed", err=vlm.get("error") or "no answer")
         return out
+    out["screen_check"] = "suspected" if vlm["screen"] else "passed"
+    if fast.get("screen_check") == "ui_detected":
+        out["screen_check"] = "ui_detected"
     if vlm["screen"]:
         if fast["status"] == "reject":
             out["reason"] = "PHOTO_OF_SCREEN"
@@ -290,6 +326,7 @@ def invalid_entry_slot(ev: dict) -> dict:
     reads = sorted(reliable)
     return _slot("reject", "INVALID_IMEI", "invalid_entry", extra_key="invalid_seen" if reads else None,
                  params={"read": ", ".join(reads)}, read_imeis=reads, reliable_imeis=reads, all_imeis=sorted(all_imeis),
+                 screen_check="not_run",
                  barcode_imeis=sorted(ev["barcode_imeis"]), matched=False, matched_by=[])
 
 

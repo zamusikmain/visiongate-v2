@@ -18,14 +18,14 @@ VG.header("");
 VG.applyI18n();
 const sid = location.pathname.split("/").pop();
 
-function slotCard(slot, s) {
+function slotCard(slot, s, pending) {
   if (!s) return "";
   const reads = s.read_imeis.length ? s.read_imeis.map(VG.esc).join(", ") : "—";
   const bars = s.barcodes.length ? s.barcodes.map(VG.esc).join(", ") : VG.t("not_read");
   const by = s.matched_by.map(x => VG.t(x)).join(", ");
   return `<div class="card">
     <div class="row" style="justify-content:space-between"><h2 style="margin:0">${VG.slotName(slot)}</h2>
-      ${VG.badge(s.status, VG.slotStatus(s.status))}</div>
+      ${VG.badge(VG.slotView(s, pending), VG.slotStatus(VG.slotView(s, pending)))}</div>
     <p>${VG.esc(VG.pick(s, "message"))}</p>
     <dl class="kv"><dt>${VG.t("recognised_imei")}</dt><dd class="mono">${reads}</dd>
       <dt>${VG.t("barcodes")}</dt><dd class="mono">${bars}</dd>
@@ -52,7 +52,7 @@ async function load() {
         <dt>${VG.t("fast_check")}</dt><dd>${r.fast_seconds ?? "—"} ${VG.t("sec")}</dd>
         ${r.vlm_seconds ? `<dt>${VG.t("screen_check")}</dt><dd>${r.vlm_seconds} ${VG.t("sec")}</dd>` : ""}</dl>
     </div>
-    ${slotCard("device", r.slots.device)}${slotCard("scan", r.slots.scan)}`;
+    ${slotCard("device", r.slots.device, pending)}${slotCard("scan", r.slots.scan, pending)}`;
   if (pending) setTimeout(load, 4000);
 }
 load();

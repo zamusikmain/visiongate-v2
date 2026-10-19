@@ -126,8 +126,9 @@ def _row(pair, res, truth, error=None) -> dict:
                    fast_seconds=res.get("fast_seconds"), vlm_seconds=res.get("vlm_seconds"),
                    vlm_cached=all((res.get("vlm") or {}).get(s, {}).get("cached") for s in pipeline.SLOTS)
                    if res.get("vlm") else None,
-                   slots={s: {k: res["slots"][s].get(k) for k in ("status", "reason", "message", "message_en",
-                                                                   "read_imeis", "barcode_imeis")}
+                   slots={s: dict({k: res["slots"][s].get(k) for k in ("status", "reason", "message", "message_en",
+                                                                        "read_imeis", "barcode_imeis", "screen_check")},
+                                  display=decision.slot_display(res["slots"][s]))
                           for s in pipeline.SLOTS})
     else:
         row.update(status="ERROR", reasons=[], message=error, message_en=error, slots={})
@@ -211,7 +212,6 @@ def to_xlsx(job: dict, lang: str = "ru") -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     li = 1 if lang == "en" else 0
-    slot_st = {"ok": ("OK", "OK"), "review": ("На ручную", "Review"), "reject": ("Отклонено", "Rejected")}
     wb = Workbook()
     ws = wb.active
     ws.title = "Results" if li else "Результаты"
@@ -223,7 +223,7 @@ def to_xlsx(job: dict, lang: str = "ru") -> bytes:
             d = r["slots"].get(s) or {}
             if not d:
                 return ""
-            st = slot_st.get(d["status"], (d["status"],) * 2)[li]
+            st = decision.SLOT_STATUS.get(d.get("display") or d["status"], (d["status"],) * 2)[li]
             return f"{st}{' — ' + d['reason'] if d.get('reason') else ''}"
         t = r.get("truth")
         status = decision.STATUS.get(r["status"], (r["status"], r["status"]))[li] if r["status"] != "ERROR" else "ERROR"

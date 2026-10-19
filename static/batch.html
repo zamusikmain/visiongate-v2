@@ -52,7 +52,7 @@ document.querySelector("#f").addEventListener("submit", async e => {
 function slotCell(r, s) {
   const d = r.slots?.[s];
   if (!d) return "";
-  return `${VG.badge(d.status, VG.slotStatus(d.status))}${d.reason ? `<br><small>${VG.esc(d.reason)}</small>` : ""}` +
+  return `${VG.badge(VG.slotView(d), VG.slotStatus(VG.slotView(d)))}${d.reason ? `<br><small>${VG.esc(d.reason)}</small>` : ""}` +
     `<br><small class="mono">${VG.esc((d.read_imeis || []).join(", ") || "—")}</small>`;
 }
 

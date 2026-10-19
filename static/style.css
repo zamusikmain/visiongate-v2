@@ -52,7 +52,8 @@ button.bad { border-color: var(--bad); color: var(--bad); }
 .s-APPROVED, .s-ok { background: var(--ok-bg); color: var(--ok); }
 .s-REJECTED, .s-reject { background: var(--bad-bg); color: var(--bad); }
 .s-REVIEW, .s-review { background: var(--warn-bg); color: var(--warn); }
-.s-PRELIMINARY, .s-PROCESSING { background: var(--info-bg); color: var(--info); }
+.s-PRELIMINARY, .s-PROCESSING, .s-pending { background: var(--info-bg); color: var(--info); }
+.s-unchecked { background: var(--bg); color: var(--muted); border: 1px dashed var(--line); }
 .big-status { font-size: 22px; padding: 8px 14px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 15px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
