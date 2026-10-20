@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate · Model accuracy</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <div class="page-head">
+    <div><h1 data-i18n="nav_accuracy"></h1><p class="hint" id="sub"></p></div>
+    <div class="seg" id="mode" hidden></div>
+  </div>
+  <div id="root"><div class="card empty" data-i18n="loading"></div></div>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/accuracy");
+VG.applyI18n();
+// Тексты страницы (цифры — из reports/eval_results*.json, ничего не пересчитывается)
+const L = {
+  ru: {
+    sub: "Прогон tools/eval.py по размеченному тестовому датасету Samsung",
+    m_entered: "IMEI введён", m_photo: "Без IMEI (с фото)",
+    k_fa: "ложных одобрений", k_fr: "ложных отказов", k_auto: "верных авто-решений", k_review: "на ручную проверку",
+    k_reason: "верная причина у отклонённых", k_fast: "быстрая фаза, медиана", k_vlm: "VLM на фото, медиана",
+    k_exam: "режим экзамена: верный итог", of: "из", max: "макс.", s: "с",
+    k_fa_sub: "из {n} некорректных заявок", k_fr_sub: "из {n} корректных заявок", k_auto_sub: "без участия человека",
+    k_review_sub: "кейсов", k_reason_sub: "отклонённых фото", k_exam_sub: "строго Approved/Rejected, низкая уверенность: {n}",
+    k_vlm_sub: "проверка на фото экрана, CPU",
+    cmp_title: "Сравнение с текущим процессом", cmp_fa: "Ложные одобрения — пропущено некорректных заявок из {n}",
+    cmp_fr: "Ложные отказы — отклонено корректных заявок из {n}",
+    b_current_process: "Текущий процесс (всё одобряется)", b_v1: "Прошлая версия (v1)", b_v2: "VisionGate v2",
+    na: "нет данных",
+    verdict: "Текущий процесс пропускает {cur} из {n} некорректных заявок, VisionGate — {v2}.",
+    cmp_note: "VisionGate v2 дополнительно отправил на ручную проверку {ar} из {na} корректных и {rr} из {nr} некорректных заявок — они не одобрены и не отклонены автоматически. «Одобрено» для v2 включает «предварительно одобрено», если VLM не запускалась. Цифры прошлой версии — со слов заказчика, на отклонённых кейсах они не известны.",
+    syn_title: "Синтетические проверки", syn_hint: "Подмена введённого IMEI или фото на кейсах датасета. Зелёный — ожидаемый результат во всех случаях, жёлтый — часть случаев ушла на ручную проверку (безопасно), красный — ошибка.",
+    syn_expected: "ожидаемый результат", syn_safe: "безопасно: {n}",
+    t_INVALID_IMEI: "INVALID_IMEI — ошибка в цифре введённого IMEI", t_IMEI_MISMATCH: "IMEI_MISMATCH — введён IMEI другого устройства",
+    "t_ВВЕДЁН IMEI2": "Введён IMEI2 вместо IMEI1", "t_РАЗНЫЕ УСТРОЙСТВА": "Фото коробки и скан от разных устройств",
+    "t_ОДНО ФОТО В ОБА СЛОТА": "Одно фото в оба слота",
+    method: "Ограничения и методика", trust: "Насколько можно доверять этим цифрам",
+    prelim_note: "«Одобрено*» = предварительно одобрено быстрой фазой, VLM не запускалась.",
+    run: "Прогон", cases: "кейсов", elapsed: "время прогона", raw: "Технический отчёт по кейсам (HTML)",
+    vlm_off: "VLM выключена (--no-vlm): «фото экрана» проверяется только по признакам интерфейса в OCR.",
+    vlm_ollama: "VLM: локальная Ollama только для заявок, не отклонённых быстрой фазой (как в проде).",
+    vlm_ollama_all: "VLM: локальная Ollama для всех фото (--vlm-all).", vlm_anthropic: "VLM: внешний API Anthropic.",
+    mode_photo: "Режим: БЕЗ введённого IMEI — номер читается с фото, сверяются фото между собой.",
+    mode_entered: "Режим: IMEI введён (из имени папки).", imei_ok: "IMEI определён верно: {ok} из {n}, неверно: {bad}.",
+    empty_t: "Отчёт ещё не сгенерирован", empty_h: "Запустите прогон по размеченному датасету, затем обновите страницу:",
+  },
+  en: {
+    sub: "tools/eval.py run on the labelled Samsung test dataset",
+    m_entered: "IMEI entered", m_photo: "No IMEI (from photos)",
+    k_fa: "false approvals", k_fr: "false rejections", k_auto: "correct automatic decisions", k_review: "sent to manual review",
+    k_reason: "correct reason for rejected photos", k_fast: "fast phase, median", k_vlm: "VLM per photo, median",
+    k_exam: "exam mode: correct result", of: "of", max: "max", s: "s",
+    k_fa_sub: "of {n} invalid submissions", k_fr_sub: "of {n} valid submissions", k_auto_sub: "no human involved",
+    k_review_sub: "cases", k_reason_sub: "rejected photos", k_exam_sub: "strict Approved/Rejected, low confidence: {n}",
+    k_vlm_sub: "screen-photo check, CPU",
+    cmp_title: "Comparison with the current process", cmp_fa: "False approvals — invalid submissions let through, of {n}",
+    cmp_fr: "False rejections — valid submissions rejected, of {n}",
+    b_current_process: "Current process (everything approved)", b_v1: "Previous version (v1)", b_v2: "VisionGate v2",
+    na: "no data",
+    verdict: "The current process lets through {cur} of {n} invalid submissions, VisionGate — {v2}.",
+    cmp_note: "VisionGate v2 also sent {ar} of {na} valid and {rr} of {nr} invalid submissions to manual review — they were neither approved nor rejected automatically. “Approved” for v2 includes “preliminarily approved” when the VLM did not run. Previous-version numbers are as reported by the customer; they are unknown for the rejected cases.",
+    syn_title: "Synthetic checks", syn_hint: "The entered IMEI or a photo is substituted on dataset cases. Green — expected result in all cases, amber — some cases went to manual review (safe), red — error.",
+    syn_expected: "expected result", syn_safe: "safe: {n}",
+    t_INVALID_IMEI: "INVALID_IMEI — a wrong digit in the entered IMEI", t_IMEI_MISMATCH: "IMEI_MISMATCH — IMEI of another device entered",
+    "t_ВВЕДЁН IMEI2": "IMEI2 entered instead of IMEI1", "t_РАЗНЫЕ УСТРОЙСТВА": "Box photo and scan from different devices",
+    "t_ОДНО ФОТО В ОБА СЛОТА": "Same photo in both slots",
+    method: "Limitations and methodology", trust: "How far these numbers can be trusted",
+    prelim_note: "“Approved*” = preliminarily approved by the fast phase, the VLM did not run.",
+    run: "Run", cases: "cases", elapsed: "run time", raw: "Technical per-case report (HTML)",
+    vlm_off: "VLM off (--no-vlm): “photo of a screen” is checked only by phone-UI signs in OCR.",
+    vlm_ollama: "VLM: local Ollama only for submissions not rejected by the fast phase (as in production).",
+    vlm_ollama_all: "VLM: local Ollama for all photos (--vlm-all).", vlm_anthropic: "VLM: external Anthropic API.",
+    mode_photo: "Mode: NO entered IMEI — the number is read from the photos, the photos are compared with each other.",
+    mode_entered: "Mode: IMEI entered (from the folder name).", imei_ok: "IMEI determined correctly: {ok} of {n}, wrong: {bad}.",
+    empty_t: "The report has not been generated yet", empty_h: "Run the check on the labelled dataset, then refresh this page:",
+  },
+}[VG.lang === "en" ? "en" : "ru"];
+const T = (k, p) => { let s = L[k] ?? k; for (const [a, b] of Object.entries(p || {})) s = s.replaceAll(`{${a}}`, b); return s; };
+document.querySelector("#sub").textContent = T("sub");
+
+// Полный текст «Насколько можно доверять этим цифрам» (как в отчёте tools/eval.py)
+function trustItems(sm) {
+  if (VG.lang === "en") return [
+    `<b>14 cases is very few.</b> One error changes accuracy by 7 percentage points. The uncertainty intervals are huge: ${sm.false_approve} false approvals out of ${sm.n_rejected} rejected cases are compatible with a real false-approval rate of up to ~${sm.false_approve_ci_upper}%, and ${sm.false_reject} false rejections out of ${sm.n_approved} approved cases — with a rate of up to ~${sm.false_reject_ci_upper}% (95% Clopper–Pearson confidence interval).`,
+    `<b>Unintended fitting is possible.</b> I checked the rules and parameters (OCR scales, IMEI extraction, barcode region detector) on these same 28 photos. I tried not to introduce thresholds for specific files, but there is no independent hold-out set. Real results on new photos are most likely worse.`,
+    `<b>The VLM prompt was chosen on these same photos.</b> Of two variants, the one with fewer false “photo of a screen” results on approved cases was kept. This is direct fitting to the dataset: on new photos the share of false suspicions may be higher. The safe side: a suspicion only sends the submission to manual review.`,
+    `<b>Dataset homogeneity.</b> All photos are Samsung, several models, similar labels, 3 shops and probably only a few sellers. Other models, labels, lighting and seller phones have not been tested.`,
+    `<b>The IMEI_MISMATCH and INVALID_IMEI reasons and IMEI2 entry were tested only synthetically</b> (substituting the entered number). The dataset has no real photos with someone else's IMEI.`,
+    `<b>“Photo of a screen”:</b> 6 screen photos, all from one seller and apparently from one phone. The detector (VLM + UI signs) has not been tested on other screens (monitors, iPhones, without a messenger).`,
+    `<b>The CROPPED and NO_SERIAL vs BLURRY reasons</b> are determined by heuristics, with 3 examples each. A correct “rejected” status is much more reliable here than the correct wording of the reason.`,
+    `Time was measured on this laptop (Core Ultra 5 225U, CPU) on dataset photos, in a single thread. With several sellers at once the fast checks queue up, and so does the VLM.`,
+  ];
+  return [
+    `<b>14 кейсов — это очень мало.</b> Одна ошибка меняет точность на 7 процентных пунктов. Интервалы неопределённости огромные: ${sm.false_approve} ложных одобрений из ${sm.n_rejected} отклонённых кейсов совместимы с реальной долей ложных одобрений до ~${sm.false_approve_ci_upper}%, а ${sm.false_reject} ложных отклонений из ${sm.n_approved} одобренных — с долей до ~${sm.false_reject_ci_upper}% (95% доверительный интервал Клоппера–Пирсона).`,
+    `<b>Возможна невольная подгонка.</b> Правила и параметры (масштабы OCR, извлечение IMEI, детектор областей штрихкодов) я проверял на этих же 28 фото. Я старался не вводить порогов под конкретные файлы, но независимой отложенной выборки нет. Реальные результаты на новых фото, скорее всего, хуже.`,
+    `<b>Промпт VLM выбран по этим же фото.</b> Из двух вариантов оставлен тот, что дал меньше ложных «фото экрана» на одобренных кейсах. Это прямая подгонка под датасет: на новых фото доля ложных подозрений может быть выше. Безопасная сторона: подозрение только отправляет заявку на ручную проверку.`,
+    `<b>Однородность датасета.</b> Все фото — Samsung нескольких моделей, похожие этикетки, 3 магазина и, вероятно, всего несколько продавцов. Другие модели, этикетки, освещение и телефоны продавцов не проверены.`,
+    `<b>Причины IMEI_MISMATCH, INVALID_IMEI и ввод IMEI2 проверены только синтетически</b> (подмена введённого номера). Реальных фото с чужим IMEI в датасете нет.`,
+    `<b>«Фото экрана»:</b> 6 фото экрана, все от одного продавца и, похоже, с одного телефона. Детектор (VLM + признаки интерфейса) на других экранах (мониторы, айфоны, без мессенджера) не проверен.`,
+    `<b>Причины CROPPED и NO_SERIAL против BLURRY</b> определяются эвристиками, на каждую по 3 примера. Верный статус «отклонено» здесь гораздо надёжнее, чем верная формулировка причины.`,
+    `Время замерено на этом ноутбуке (Core Ultra 5 225U, CPU) на фото датасета, в один поток. При нескольких продавцах одновременно быстрые проверки идут в очередь, VLM — тоже.`,
+  ];
+}
+
+const kpi = (val, label, sub, cls) => `<div class="kpi ${cls || ""}"><div class="k-label">${VG.esc(label)}</div>
+  <div class="k-val">${val}</div><div class="k-sub">${sub || "&nbsp;"}</div></div>`;
+const ofN = (a, b) => `${a} <small style="font-size:15px;font-weight:500;color:var(--muted)">${T("of")} ${b}</small>`;
+
+// Горизонтальный столбик «значение из n»; null — нет данных
+function cmpRows(items, n) {
+  return `<div class="bars">${items.map(i => `<div class="bar-row"><span>${i.cur ? `<b>${VG.esc(i.label)}</b>` : VG.esc(i.label)}</span>
+    <span class="bar-track">${i.value == null ? "" : `<div style="width:${(100 * i.value / Math.max(1, n)).toFixed(1)}%;background:${i.color}"></div>`}</span>
+    <span class="num">${i.value == null ? `<span class="na">${T("na")}</span>` : `${i.value} / ${n}`}</span></div>`).join("")}</div>`;
+}
+
+function render(data, mode) {
+  const sm = data[mode];
+  const cur = sm.current, base = Object.fromEntries(data.baselines.map(b => [b.key, b]));
+  const ex = sm.exam || {};
+  const rows = (field, nKey) => [
+    { label: T("b_current_process"), value: base.current_process[field], color: "var(--c-rejected)" },
+    { label: T("b_v1"), value: base.v1[field], color: "var(--c-rejected)" },
+    { label: T("b_v2"), value: cur[field], color: "var(--accent)", cur: true },
+  ];
+  const synth = (sm.synthetic || []).map(t => {
+    const cls = t.expected === t.n ? "pass" : (t.safe === t.n ? "warn" : "fail");
+    return `<div><b class="${cls}">${t.expected} / ${t.n}</b>
+      <span>${VG.esc(T("t_" + t.test))}</span><br><span>${T("syn_expected")}${t.expected < t.n ? " · " + T("syn_safe", { n: t.safe }) : ""}</span></div>`;
+  }).join("");
+  const vlm = sm.vlm_provider === "off" ? T("vlm_off") : sm.vlm_provider === "anthropic" ? T("vlm_anthropic")
+    : T(sm.vlm_all ? "vlm_ollama_all" : "vlm_ollama");
+  document.querySelector("#root").innerHTML = `
+  <div class="kpis acc">
+    ${kpi(sm.false_approve, T("k_fa"), T("k_fa_sub", { n: sm.n_rejected }), sm.false_approve === 0 ? "good" : "")}
+    ${kpi(sm.false_reject, T("k_fr"), T("k_fr_sub", { n: sm.n_approved }), sm.false_reject === 0 ? "good" : "")}
+    ${kpi(ofN(sm.auto_correct, sm.auto_decided), T("k_auto"), T("k_auto_sub"), sm.auto_correct === sm.auto_decided ? "good" : "")}
+    ${kpi(ofN(sm.review, sm.cases), T("k_review"), T("k_review_sub"), sm.review ? "warn" : "")}
+    ${kpi(ofN(sm.rejected_slots_reason_right, sm.rejected_slots_true), T("k_reason"), T("k_reason_sub"))}
+    ${kpi(`${sm.fast_time_median ?? "—"} ${T("s")}`, T("k_fast"), `${T("max")} ${sm.fast_time_max ?? "—"} ${T("s")}`)}
+    ${kpi(`${sm.vlm_time_median ?? "—"} ${T("s")}`, T("k_vlm"), T("k_vlm_sub"))}
+    ${ex.cases ? kpi(ofN(ex.final_correct, ex.cases), T("k_exam"), T("k_exam_sub", { n: ex.low_confidence }), ex.final_correct === ex.cases ? "good" : "") : ""}
+  </div>
+  <div class="card">
+    <div class="card-title"><h2>${T("cmp_title")}</h2></div>
+    <div class="cmp">
+      <div><h3>${T("cmp_fa", { n: sm.n_rejected })}</h3>${cmpRows(rows("rej_app"), sm.n_rejected)}</div>
+      <div><h3>${T("cmp_fr", { n: sm.n_approved })}</h3>${cmpRows(rows("app_rej"), sm.n_approved)}</div>
+    </div>
+    <p class="verdict">${T("verdict", { cur: base.current_process.rej_app, n: sm.n_rejected, v2: cur.rej_app })}</p>
+    <p class="foot">${T("cmp_note", { ar: cur.app_review, na: sm.n_approved, rr: cur.rej_review, nr: sm.n_rejected })}</p>
+  </div>
+  ${synth ? `<div class="card"><div class="card-title"><h2>${T("syn_title")}</h2></div>
+    <p class="hint" style="margin:-4px 0 12px;font-size:13px">${T("syn_hint")}</p><div class="synth">${synth}</div></div>` : ""}
+  <div class="card"><details class="method"><summary>${T("method")}</summary>
+    <h3 style="font-size:14.5px;margin:12px 0 0">${T("trust")}</h3>
+    <ul>${trustItems(sm).map(x => `<li>${x}</li>`).join("")}</ul>
+    <p class="foot">${T("prelim_note")}</p></details></div>
+  <p class="foot">${T("run")}: ${VG.esc(VG.fmtDate(sm.generated))} · ${T("cases")}: ${sm.cases} · ${VG.esc(vlm)}
+    ${VG.esc(T(sm.photo_only ? "mode_photo" : "mode_entered"))}
+    ${VG.esc(T("imei_ok", { ok: sm.imei_detected_ok, n: sm.cases, bad: sm.imei_detected_wrong }))}
+    · ${T("elapsed")}: ${sm.elapsed_s} ${T("s")} ·
+    <a href="/reports/eval_report${mode === "photo" ? "_photo" : ""}.html">${T("raw")}</a></p>`;
+}
+
+VG.json("/api/accuracy").then(data => {
+  const modes = ["entered", "photo"].filter(m => data[m]);
+  if (!modes.length) {
+    document.querySelector("#root").innerHTML = `<div class="card empty"><b>${T("empty_t")}</b>${T("empty_h")}
+      <pre style="text-align:left;max-width:560px;margin:12px auto 0">.\\.venv\\Scripts\\python.exe tools\\eval.py
+.\\.venv\\Scripts\\python.exe tools\\eval.py --photo-only</pre></div>`;
+    return;
+  }
+  let mode = modes[0];
+  try { const m = localStorage.getItem("vg_acc_mode"); if (modes.includes(m)) mode = m; } catch (_) { /* приватный режим */ }
+  const seg = document.querySelector("#mode");
+  const draw = () => {
+    seg.innerHTML = modes.map(m => `<button type="button" data-m="${m}" class="${m === mode ? "active" : ""}">${T("m_" + m)}</button>`).join("");
+    seg.querySelectorAll("button").forEach(b => b.onclick = () => {
+      mode = b.dataset.m;
+      try { localStorage.setItem("vg_acc_mode", mode); } catch (_) { /* приватный режим */ }
+      draw();
+    });
+    render(data, mode);
+  };
+  seg.hidden = modes.length < 2;
+  draw();
+}).catch(e => { document.querySelector("#root").innerHTML = `<div class="card err">${VG.esc(e.message)}</div>`; });
+</script>
+</body>
+</html>

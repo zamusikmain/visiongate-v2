@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VisionGate · Overview</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
 </head>
 <body>
 <header></header>
@@ -19,8 +20,8 @@
   <div class="dash-grid dash-row">
     <div class="card">
       <div class="card-title"><h2 data-i18n="ch_daily"></h2>
-        <div class="legend"><span><i class="dot" style="background:#b9cff8"></i><span data-i18n="ch_received"></span></span>
-          <span><i class="dot" style="background:#1f5fd6"></i><span data-i18n="ch_processed"></span></span></div></div>
+        <div class="legend"><span><i class="dot" style="background:var(--c-received)"></i><span data-i18n="ch_received"></span></span>
+          <span><i class="dot" style="background:var(--c-processed)"></i><span data-i18n="ch_processed"></span></span></div></div>
       <div class="chart" id="daily"></div>
     </div>
     <div class="card"><div class="card-title"><h2 data-i18n="ch_summary"></h2></div><div id="summary"></div></div>
@@ -78,7 +79,7 @@ async function load() {
     label: VG.bucketLabel(k), value: tot ? Math.round(100 * b[k] / tot) : 0, suffix: "%", color: BUCKET_COLOR[k],
     href: k === "processing" ? "/queue" : `/submissions?status=${k}` })), 100) : empty(VG.t("empty_title"));
   document.querySelector("#reasons").innerHTML = d.reasons.length ? VGChart.hbars(d.reasons.map(r => ({
-    label: VG.reasonLabel(r.code), value: r.count, href: `/submissions?reason=${r.code}`, color: "#c4321f" }))) :
+    label: VG.reasonLabel(r.code), value: r.count, href: `/submissions?reason=${r.code}`, color: "var(--c-rejected)" }))) :
     empty(VG.t("empty_reasons"));
   const m = (v, label) => `<div class="metric"><b>${v ?? "—"}</b><span>${VG.esc(label)}</span></div>`;
   document.querySelector("#metrics").innerHTML = m(d.avg_fast_s, VG.t("m_fast")) + m(d.avg_vlm_s, VG.t("m_vlm")) +

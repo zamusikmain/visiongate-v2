@@ -2,7 +2,7 @@
 const I18N = {
   ru: {
     nav_overview: "Обзор", nav_new: "Новая заявка", nav_all: "Все заявки", nav_queue: "Очередь обработки",
-    nav_reasons: "Причины отказов",
+    nav_reasons: "Причины отказов", nav_accuracy: "Точность модели", theme_dark: "Тёмная тема", theme_light: "Светлая тема",
     b_approved: "Approved", b_rejected: "Rejected", b_review: "Needs review", b_processing: "В обработке",
     r_INVALID_IMEI: "Неверный IMEI (Луна)", r_PHOTO_OF_SCREEN: "Фото экрана", r_IMEI_MISMATCH: "IMEI не совпадает",
     r_NO_SERIAL: "Нет наклейки с IMEI", r_CROPPED: "Наклейка обрезана", r_BLURRY_DARK_UNREADABLE: "Размыто / темно / нечитаемо",
@@ -83,7 +83,7 @@ const I18N = {
   },
   en: {
     nav_overview: "Overview", nav_new: "New submission", nav_all: "All submissions", nav_queue: "Processing queue",
-    nav_reasons: "Rejection reasons",
+    nav_reasons: "Rejection reasons", nav_accuracy: "Model accuracy", theme_dark: "Dark theme", theme_light: "Light theme",
     b_approved: "Approved", b_rejected: "Rejected", b_review: "Needs review", b_processing: "Processing",
     r_INVALID_IMEI: "Invalid IMEI (Luhn)", r_PHOTO_OF_SCREEN: "Screen photo", r_IMEI_MISMATCH: "IMEI mismatch",
     r_NO_SERIAL: "No IMEI label", r_CROPPED: "Label cropped", r_BLURRY_DARK_UNREADABLE: "Blurry / dark / unreadable",
@@ -181,6 +181,15 @@ const VG = {
     try { localStorage.setItem("vg_lang", l); } catch (_) { /* приватный режим */ }
     location.reload();
   },
+  // светлая / тёмная тема (атрибут ставит theme.js ещё до отрисовки)
+  ICON_SUN: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  ICON_MOON: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  theme() { return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"; },
+  setTheme(t) {
+    if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem("vg_theme", t); } catch (_) { /* приватный режим */ }
+  },
   applyI18n(root = document) {
     document.documentElement.lang = VG.lang;
     root.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = VG.t(el.dataset.i18n); });
@@ -195,20 +204,32 @@ const VG = {
       list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
       queue: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
       reasons: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+      accuracy: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     };
+    const item = ([href, i, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">` +
+      `<svg viewBox="0 0 24 24">${ic[i]}</svg>${VG.t(k)}${i === "queue" ? '<span class="count" id="navQueue" hidden></span>' : ""}</a>`;
     const nav = [["/", "overview", "nav_overview"], ["/new", "new", "nav_new"], ["/batch", "batch", "nav_batch"],
       ["/submissions", "list", "nav_all"], ["/queue", "queue", "nav_queue"], ["/reasons", "reasons", "nav_reasons"]];
-    const sub = [["/review", "nav_review"], ["/settings", "nav_settings"], ["/reports/eval_report.html", "nav_report"]];
+    const sub = [["/review", "nav_review"], ["/settings", "nav_settings"]];
     const h = document.querySelector("header");
     h.innerHTML =
       `<a class="brand" href="/"><span class="logo">V</span><span><b>VisionGate</b><small>Photo verification</small></span></a>` +
       `<button type="button" class="burger" aria-label="menu">☰</button>` +
-      `<nav>${nav.map(([href, i, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">` +
-        `<svg viewBox="0 0 24 24">${ic[i]}</svg>${VG.t(k)}${i === "queue" ? '<span class="count" id="navQueue" hidden></span>' : ""}</a>`).join("")}</nav>` +
-      `<div class="sub">${sub.map(([href, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">${VG.t(k)}</a>`).join("")}` +
-      `<span class="lang"><button type="button" data-l="ru" class="${VG.lang === "ru" ? "active" : ""}">RU</button>` +
-      `<button type="button" data-l="en" class="${VG.lang === "en" ? "active" : ""}">EN</button></span></div>`;
+      `<nav>${nav.map(item).join("")}</nav>` +
+      `<div class="sub"><nav>${item(["/accuracy", "accuracy", "nav_accuracy"])}</nav>` +
+      sub.map(([href, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">${VG.t(k)}</a>`).join("") +
+      `<div class="tools"><span class="lang"><button type="button" data-l="ru" class="${VG.lang === "ru" ? "active" : ""}">RU</button>` +
+      `<button type="button" data-l="en" class="${VG.lang === "en" ? "active" : ""}">EN</button></span>` +
+      `<button type="button" class="theme-btn"></button></div></div>`;
     h.querySelectorAll(".lang button").forEach(b => b.onclick = () => VG.setLang(b.dataset.l));
+    const tb = h.querySelector(".theme-btn");
+    const paint = () => {
+      const dark = VG.theme() === "dark";  // иконка — тема, на которую переключит кнопка
+      tb.innerHTML = `<svg viewBox="0 0 24 24">${dark ? VG.ICON_SUN : VG.ICON_MOON}</svg>`;
+      tb.title = VG.t(dark ? "theme_light" : "theme_dark"); tb.setAttribute("aria-label", tb.title);
+    };
+    tb.onclick = () => { VG.setTheme(VG.theme() === "dark" ? "light" : "dark"); paint(); };
+    paint();
     h.querySelector(".burger").onclick = () => h.classList.toggle("open");
     // счётчик очереди фоновой проверки в меню
     fetch("/api/queue").then(r => r.json()).then(q => {

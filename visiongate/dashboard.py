@@ -113,3 +113,34 @@ def parse_day(s: str | None):
         return datetime.strptime(s, "%Y-%m-%d").date().isoformat() if s else None
     except ValueError:
         return None
+
+
+# ---------- страница «Точность модели»: отчёт tools/eval.py как есть, без пересчёта ----------
+# Базовые линии — те же, что BASELINES в tools/eval.py (текущий процесс: всё одобряется; прошлая версия — данные заказчика)
+BASELINES = [
+    {"key": "current_process", "app_ok": 5, "app_review": 0, "app_rej": 0, "rej_ok": 0, "rej_review": 0, "rej_app": 9},
+    {"key": "v1", "app_ok": 0, "app_review": 0, "app_rej": 5, "rej_ok": None, "rej_review": None, "rej_app": None},
+]
+SYNTH_ORDER = ["INVALID_IMEI", "IMEI_MISMATCH", "ВВЕДЁН IMEI2", "РАЗНЫЕ УСТРОЙСТВА", "ОДНО ФОТО В ОБА СЛОТА"]
+
+
+def accuracy_report(reports_dir) -> dict:
+    """Сводки reports/eval_results*.json. Без построчных кейсов и IMEI: синтетика — только итоги по тестам."""
+    import json
+    out = {"baselines": BASELINES}
+    for mode, name in (("entered", "eval_results.json"), ("photo", "eval_results_photo.json")):
+        p = reports_dir / name
+        if not p.exists():
+            out[mode] = None
+            continue
+        sm = json.loads(p.read_text(encoding="utf-8"))["summary"]
+        syn = defaultdict(lambda: {"n": 0, "expected": 0, "safe": 0})
+        for t in sm.pop("synthetic", []):
+            g = syn[t["test"]]
+            g["n"] += 1
+            g["expected"] += bool(t["expected"])
+            g["safe"] += bool(t["safe"])
+        sm["synthetic"] = [dict(test=k, **syn[k]) for k in SYNTH_ORDER + sorted(set(syn) - set(SYNTH_ORDER)) if k in syn]
+        sm["exam"] = {k: v for k, v in (sm.get("exam") or {}).items() if k != "wrong_cases"}
+        out[mode] = sm
+    return out

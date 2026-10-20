@@ -61,6 +61,17 @@ def reasons_page():
     return _page("reasons.html")
 
 
+@app.get("/accuracy")
+def accuracy_page():
+    return _page("accuracy.html")
+
+
+@app.get("/api/accuracy")
+def api_accuracy():
+    """Итоги последнего прогона tools/eval.py (оба режима); null — отчёт ещё не сгенерирован."""
+    return dashboard.accuracy_report(REPORTS)
+
+
 # ---------- read-only API для админ-панели ----------
 
 def _light_public(r: dict) -> dict:

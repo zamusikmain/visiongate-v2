@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VisionGate · Rejection reasons</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
 </head>
 <body>
 <header></header>
@@ -25,7 +26,7 @@ VG.header("/reasons");
 VG.applyI18n();
 const daysSel = document.querySelector("#days");
 daysSel.querySelectorAll("option").forEach(o => o.textContent = VG.t("days_n", { n: o.value }));
-const COLORS = ["#c4321f", "#e8590c", "#d48806", "#7048e8", "#1f5fd6", "#0c8599", "#667085"];
+const COLORS = [1, 2, 3, 4, 5, 6, 7].map(i => `var(--r${i})`);
 async function load() {
   const d = await VG.json(`/api/stats/reasons?days=${daysSel.value}`);
   document.querySelector("#rejTotal").textContent = `${VG.bucketLabel("rejected")}: ${d.rejected_total}`;
