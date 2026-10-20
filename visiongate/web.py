@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import batch, db, decision, imei, pipeline, worker
+from . import batch, dashboard, db, decision, exam, imei, pipeline, worker
 from .config import REPORTS, STATIC, UPLOADS, ensure_dirs, load_settings, save_settings
 
 log = logging.getLogger("visiongate")
@@ -37,8 +37,91 @@ def _page(name):
 
 
 @app.get("/")
-def index():
-    return _page("index.html")
+def overview_page():
+    return _page("overview.html")
+
+
+@app.get("/new")
+def new_page():
+    return _page("new.html")
+
+
+@app.get("/submissions")
+def submissions_page():
+    return _page("submissions.html")
+
+
+@app.get("/queue")
+def queue_page():
+    return _page("queue.html")
+
+
+@app.get("/reasons")
+def reasons_page():
+    return _page("reasons.html")
+
+
+# ---------- read-only API для админ-панели ----------
+
+def _light_public(r: dict) -> dict:
+    st = decision.STATUS.get(r["status"], (r["status"], r["status"]))
+    return dict(r, imei_masked=dashboard.mask_imei(r["imei"]), bucket=dashboard.bucket(r["status"], r["phase"]),
+                status_ru=st[0], status_en=st[1])
+
+
+@app.get("/api/stats/overview")
+def stats_overview(days: int = 14):
+    rows = db.stats_rows()
+    out = dashboard.overview(rows, max(1, min(days, 90)))
+    out["recent"] = [_light_public(r) for r in reversed(rows[-10:])]
+    out["reason_text"] = {k: {"ru": v[0], "en": v[1]} for k, v in decision.REASONS.items()}
+    return out
+
+
+@app.get("/api/stats/reasons")
+def stats_reasons(days: int = 30):
+    return dashboard.reasons_report(db.stats_rows(), max(1, min(days, 180)))
+
+
+def _filters(q, status, reason, source, date_from, date_to):
+    return dict(q=(q or "").strip(), bucket=status or "", reason=reason or "", source=source or "",
+                date_from=dashboard.parse_day(date_from), date_to=dashboard.parse_day(date_to))
+
+
+@app.get("/api/list")
+def list_filtered(q: str = "", status: str = "", reason: str = "", source: str = "", date_from: str = "",
+                  date_to: str = "", limit: int = 50, offset: int = 0):
+    total, rows = db.search(limit=max(1, min(limit, 500)), offset=max(0, offset),
+                            **_filters(q, status, reason, source, date_from, date_to))
+    return {"total": total, "rows": [_light_public(r) for r in rows]}
+
+
+@app.get("/api/list/export.xlsx")
+def list_export(q: str = "", status: str = "", reason: str = "", source: str = "", date_from: str = "",
+                date_to: str = ""):
+    """Экспорт текущей выборки в формате VALIDATION.xlsx (тот же, что у пакетной проверки)."""
+    _, ids = db.search(limit=5000, ids_only=True, **_filters(q, status, reason, source, date_from, date_to))
+    rows = []
+    for sid in reversed(ids):
+        rec = db.get(sid)
+        res = (rec or {}).get("result")
+        if not res or not res.get("slots"):
+            continue
+        e = exam.resolve(res)
+        rows.append({"imei": rec["imei"], "date": rec["created_at"][8:10] + "." + rec["created_at"][5:7] + "." +
+                     rec["created_at"][:4], "device": e["device"], "scan": e["scan"], "final": e["final"],
+                     "reason": e["reason"], "confidence": e["confidence"], "note": e["note"],
+                     "imei_source": res.get("imei_source", ""), "device_file": rec.get("device_file") or "",
+                     "scan_file": rec.get("scan_file") or ""})
+    return Response(exam.write_xlsx(rows), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="visiongate_submissions.xlsx"'})
+
+
+@app.get("/api/queue")
+def queue_api():
+    _, rows = db.search(bucket="processing", limit=500)
+    rows = sorted(rows, key=lambda r: r["id"])
+    return {"current": worker.current_id(), "size": worker.queue_size(), "rows": [_light_public(r) for r in rows]}
 
 
 @app.get("/s/{sid}")
