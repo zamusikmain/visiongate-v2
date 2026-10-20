@@ -29,3 +29,6 @@ reports/
 *.safetensors
 *.bin
 models/
+
+# экзаменационные данные заказчика
+exam_data/

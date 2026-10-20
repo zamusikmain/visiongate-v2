@@ -28,18 +28,39 @@ class BatchError(ValueError):
     pass
 
 
+_ROLE_WORDS = {"device": "device", "box": "device", "scan": "scan", "label": "scan"}
+_SLOT_NO = {"device": "1", "scan": "2"}  # номер слота перед ролью: N.1.device / N.2.scan
+
+
+def _tokens(stem: str) -> list[str]:
+    return [t for t in re.split(r"[\s_\-.]+", stem.lower()) if t]
+
+
 def _role(name: str) -> str | None:
     n = name.lower()
     if n.startswith("device") or n.startswith("box"):
         return "device"
     if n.startswith("scan") or n.startswith("label"):
         return "scan"
+    # роль отдельным словом внутри имени: 7.1.device.jpg, case7_scan.jpg
+    for t in _tokens(PurePosixPath(n).stem):
+        if t in _ROLE_WORDS:
+            return _ROLE_WORDS[t]
     return None
 
 
 def _suffix(stem: str) -> str:
-    """Общая часть имени без префикса роли: device_abc / scan-abc → abc."""
-    return re.sub(r"^(device|box|scan|label)[\s_\-.]*", "", stem, flags=re.I).lower()
+    """Ключ пары — имя без слова роли: device_abc / scan-abc → abc; 7.1.device / 7.2.scan → 7."""
+    if re.match(r"^(device|box|scan|label)", stem, flags=re.I):
+        return re.sub(r"^(device|box|scan|label)[\s_\-.]*", "", stem, flags=re.I).lower()
+    toks = _tokens(stem)
+    i = next((k for k, t in enumerate(toks) if t in _ROLE_WORDS), None)
+    if i is None:
+        return stem.lower()
+    before = toks[:i]
+    if before and before[-1] == _SLOT_NO[_ROLE_WORDS[toks[i]]]:
+        before = before[:-1]  # номер слота (1 — коробка, 2 — скан) не часть ключа
+    return ".".join(before + toks[i + 1:])
 
 
 def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
@@ -70,7 +91,7 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
             continue
         role = _role(p.name)
         if not role:
-            warnings.append(f"Пропущен {i.filename}: имя должно начинаться с device_ или scan_")
+            warnings.append(f"Пропущен {i.filename}: в имени нет device/scan (device_X.jpg или N.1.device.jpg)")
             continue
         if i.file_size > MAX_FILE:
             warnings.append(f"Пропущен {i.filename}: больше 25 МБ")
@@ -78,7 +99,8 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
         folders.setdefault(str(p.parent), {"device": [], "scan": []})[role].append(i.filename)
     pairs = []
     for folder, roles in sorted(folders.items()):
-        devs, scans = roles["device"], roles["scan"]
+        nat = lambda f: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", f.lower())]  # 2 < 10
+        devs, scans = sorted(roles["device"], key=nat), sorted(roles["scan"], key=nat)
         if len(devs) == 1 and len(scans) == 1:
             matched = [(devs[0], scans[0])]
         else:  # несколько пар в одной папке — по одинаковому окончанию имени
@@ -88,8 +110,8 @@ def parse_zip(data: bytes) -> tuple[list[dict], dict, list[str]]:
             used = {f for pair in matched for f in pair}
             for f in devs + scans:
                 if f not in used:
-                    warnings.append(f"Нет пары для {f}: в папке несколько фото, окончания имён должны совпадать "
-                                    f"(device_X.jpg ↔ scan_X.jpg)")
+                    warnings.append(f"Нет пары для {f}: в папке несколько фото, имена должны совпадать "
+                                    f"(device_X.jpg ↔ scan_X.jpg или N.1.device.jpg ↔ N.2.scan.jpg)")
         for d, s in matched:
             m = re.search(r"\d{15}", PurePosixPath(d).stem) or re.search(r"\d{15}", PurePosixPath(folder).name)
             pairs.append({"folder": folder, "imei_name": m.group(0) if m else "", "device": d, "scan": s,
