@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate · Rejection reasons</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <div class="page-head"><div><h1 data-i18n="rs_title"></h1><p class="hint" data-i18n="rs_sub"></p></div>
+    <select id="days" style="width:auto"><option value="7">7</option><option value="14">14</option>
+      <option value="30" selected>30</option><option value="90">90</option></select></div>
+  <div class="dash-grid dash-row">
+    <div class="card"><div class="card-title"><h2 data-i18n="ch_reasons"></h2><span class="hint" id="rejTotal"></span></div><div id="bars"></div></div>
+    <div class="card"><div class="card-title"><h2 data-i18n="rs_share"></h2></div><div id="share"></div></div>
+  </div>
+  <div class="card" style="padding:0;overflow-x:auto" id="table"></div>
+</main>
+<script src="/static/common.js"></script>
+<script src="/static/charts.js"></script>
+<script>
+VG.header("/reasons");
+VG.applyI18n();
+const daysSel = document.querySelector("#days");
+daysSel.querySelectorAll("option").forEach(o => o.textContent = VG.t("days_n", { n: o.value }));
+const COLORS = ["#c4321f", "#e8590c", "#d48806", "#7048e8", "#1f5fd6", "#0c8599", "#667085"];
+async function load() {
+  const d = await VG.json(`/api/stats/reasons?days=${daysSel.value}`);
+  document.querySelector("#rejTotal").textContent = `${VG.bucketLabel("rejected")}: ${d.rejected_total}`;
+  const empty = `<div class="empty"><b>${VG.t("empty_reasons")}</b>${VG.t("empty_hint")}</div>`;
+  if (!d.items.length) { ["#bars", "#share", "#table"].forEach(s => document.querySelector(s).innerHTML = empty); return; }
+  const link = c => `/submissions?reason=${c}`;
+  document.querySelector("#bars").innerHTML = VGChart.hbars(d.items.map((it, i) => ({
+    label: VG.reasonLabel(it.code), value: it.count, href: link(it.code), color: COLORS[i % COLORS.length] })));
+  document.querySelector("#share").innerHTML = VGChart.hbars(d.items.map((it, i) => ({
+    label: VG.reasonLabel(it.code), value: it.share, suffix: "%", href: link(it.code), color: COLORS[i % COLORS.length] })), 100);
+  document.querySelector("#table").innerHTML = `<table class="tbl"><thead><tr><th>${VG.t("f_reason")}</th><th>Code</th>
+    <th>${VG.t("k_total")}</th><th>${VG.t("rs_share")}</th><th>${VG.t("rs_trend")} (${VG.t("days_n", { n: d.days.length })})</th></tr></thead><tbody>` +
+    d.items.map((it, i) => `<tr onclick="location.href='${link(it.code)}'"><td><b>${VG.esc(VG.reasonLabel(it.code))}</b></td>
+      <td class="mono">${it.code}</td><td>${it.count}</td><td>${it.share}%</td><td>${VGChart.spark(it.daily, COLORS[i % COLORS.length])}</td></tr>`).join("") +
+    "</tbody></table>";
+}
+daysSel.onchange = load;
+load();
+</script>
+</body>
+</html>

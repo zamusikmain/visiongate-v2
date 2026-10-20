@@ -10,7 +10,7 @@ import uuid
 import zipfile
 from pathlib import PurePosixPath
 
-from . import decision, exam, imei, pipeline, validation
+from . import decision, exam, imei, ingest, pipeline, validation
 from .config import BATCHES, load_settings
 
 log = logging.getLogger("visiongate.batch")
@@ -163,15 +163,26 @@ def _run(job_id: str, data: bytes, pairs, truth, use_vlm: bool, use_name_imei: b
             # по умолчанию IMEI из имён не используется: номер читается с фото, фото сверяются между собой
             res = pipeline.fast_check(imgs, pair["imei_name"] if use_name_imei else "", settings)
             # VLM только там, где без неё кейс стал бы Approved (иначе кейс уже Rejected — экономия времени)
-            if res["needs_vlm"] and exam.resolve(res)["final"] == exam.APPROVED:
+            run_vlm = bool(res["needs_vlm"] and exam.resolve(res)["final"] == exam.APPROVED)
+            # заявка сразу появляется в админ-панели (с фоновой проверкой — в очереди обработки)
+            sid = ingest.save(raw, res, "batch", job_id, entered=pair["imei_name"] if use_name_imei else "",
+                              vlm_pending=run_vlm)
+            if run_vlm:
                 job["stage"] = f"VLM: {PurePosixPath(pair['device']).name}"
+                ingest.mark_running(sid)
                 res = pipeline.vlm_check(imgs, res, settings, raw=raw)
             if not use_vlm and res["final"]["status"] == "APPROVED":
                 res["final"]["status"] = "PRELIMINARY"  # проверка экрана не выполнялась
+            ingest.update(sid, res)
             row = _row(pair, res, truth, date=zf.getinfo(pair["device"]).date_time)
+            row["submission_id"] = sid
         except Exception as e:
             log.exception("batch %s: %s", job_id, pair["key"])
             row = _row(pair, None, truth, error=str(e)[:300])
+            try:
+                row["submission_id"] = ingest.save(locals().get("raw") or {}, None, "batch", job_id, error=str(e)[:200])
+            except Exception:
+                log.exception("batch %s: could not record error row", job_id)
         with _lock:
             job["rows"].append(row)
             job["done"] += 1

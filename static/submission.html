@@ -10,13 +10,14 @@
 <header></header>
 <main>
   <div id="root"><p><span class="spinner"></span> <span data-i18n="loading"></span></p></div>
-  <p><a class="btn" href="/" data-i18n="new_registration"></a></p>
+  <p class="row"><a class="btn" href="/new" data-i18n="new_registration"></a> <a class="btn" id="inList" data-i18n="open_in_list"></a></p>
 </main>
 <script src="/static/common.js"></script>
 <script>
-VG.header("");
+VG.header("/new");
 VG.applyI18n();
 const sid = location.pathname.split("/").pop();
+document.querySelector("#inList").href = `/submissions?id=${sid}`;
 
 function slotCard(slot, s, pending) {
   if (!s) return "";

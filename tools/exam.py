@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from visiongate import batch, exam, pipeline  # noqa: E402
+from visiongate import batch, exam, ingest, pipeline  # noqa: E402
 from visiongate.config import load_settings  # noqa: E402
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -51,6 +51,7 @@ def main():
                     help="auto: screen-photo check only for cases that would otherwise be Approved; off: fast checks only")
     ap.add_argument("--threads", type=int, default=0, help="CPU threads for Ollama (0 = all, best when nothing else runs)")
     ap.add_argument("--name-imei", action="store_true", help="also compare photos with the IMEI from folder/file names")
+    ap.add_argument("--no-db", action="store_true", help="do not record cases in the dashboard database")
     a = ap.parse_args()
 
     src = Path(a.input).resolve()
@@ -72,7 +73,18 @@ def main():
         settings["require_screen_check"] = False
     print(f"{len(pairs)} cases found. Output: {out}")
 
-    rows, results, raws = [], [], []
+    rows, results, raws, sids = [], [], [], []
+    exam_batch = "exam-" + time.strftime("%Y%m%d-%H%M%S")
+
+    def record(raw, res, err=None, pending=False):
+        """Заявка в БД админ-панели (решение не меняется)."""
+        if a.no_db:
+            return None
+        try:
+            return ingest.save(raw or {}, res, "exam", exam_batch, error=err, vlm_pending=pending)
+        except Exception as ex:
+            print("WARNING: dashboard DB write failed:", ex)
+            return None
 
     def row_for(pair, res, err=None):
         e = exam.resolve(res) if res else {"final": exam.REJECTED, "confidence": "low", "device": exam.OK,
@@ -99,9 +111,11 @@ def main():
             results.append(res)
             raws.append(raw)
             rows.append(row_for(pair, res))
+            sids.append(record(raw, res, pending=(a.vlm == "auto" and ingest.wants_vlm(res, "auto"))))
         except Exception as ex:  # битое фото: кейс отклоняется, прогон продолжается
             results.append(None)
             raws.append(None)
+            sids.append(record(locals().get("raw"), None, err=str(ex)[:200]))
             rows.append(row_for(pair, None, str(ex)[:200]))
         r = rows[-1]
         print(f"[fast {i}/{len(pairs)}] {pair['folder']}: {r['final']} ({r['confidence']}) {r['reason']}", flush=True)
@@ -118,8 +132,12 @@ def main():
         try:
             for k, i in enumerate(todo, 1):
                 imgs = {s: pipeline.load(raws[i][s]) for s in pipeline.SLOTS}
+                if sids[i]:
+                    ingest.mark_running(sids[i])
                 results[i] = pipeline.vlm_check(imgs, results[i], settings, raw=raws[i])
                 rows[i] = row_for(pairs[i], results[i])
+                if sids[i]:
+                    ingest.update(sids[i], results[i])
                 save()
                 r = rows[i]
                 print(f"[vlm {k}/{len(todo)}] {pairs[i]['folder']}: {r['final']} ({r['confidence']}) "

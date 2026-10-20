@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate · Queue</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <div class="page-head"><div><h1 data-i18n="q_title"></h1><p class="hint" data-i18n="q_sub"></p></div>
+    <span class="hint" id="updated"></span></div>
+  <div class="card" style="padding:0;overflow-x:auto" id="table"></div>
+</main>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/queue");
+VG.applyI18n();
+function waited(ts) {
+  const m = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 60000));
+  return `${m} ${VG.t("minutes_short")}`;
+}
+async function load() {
+  try {
+    const q = await VG.json("/api/queue");
+    document.querySelector("#updated").textContent = new Date().toLocaleTimeString();
+    const el = document.querySelector("#table");
+    if (!q.rows.length) { el.innerHTML = `<div class="empty"><b>${VG.t("q_empty")}</b>${VG.t("q_empty_hint")}</div>`; return; }
+    el.innerHTML = `<table class="tbl"><thead><tr><th>${VG.t("q_pos")}</th><th>${VG.t("col_id")}</th><th>IMEI</th>
+      <th>${VG.t("col_date")}</th><th>${VG.t("col_source")}</th><th>${VG.t("col_status")}</th><th>${VG.t("q_wait")}</th></tr></thead><tbody>` +
+      q.rows.map((r, i) => {
+        const running = r.phase === "vlm_running" || r.id === q.current;
+        return `<tr onclick="location.href='/submissions?id=${r.id}'"><td>${i + 1}</td><td>#${r.id}</td>
+          <td class="mono">${VG.esc(VG.maskImei(r.imei) || "—")}</td><td>${VG.fmtDate(r.created_at)}</td><td>${VG.t("src_" + r.source)}</td>
+          <td>${running ? `<span class="spinner" style="width:12px;height:12px;border-width:2px;vertical-align:-2px"></span> ${VG.t("q_running")}` : VG.t("q_waiting")}</td>
+          <td>${waited(r.created_at)}</td></tr>`;
+      }).join("") + "</tbody></table>";
+  } catch (e) { /* сервер перезапускается — следующая попытка через 5 с */ }
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

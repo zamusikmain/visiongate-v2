@@ -1,6 +1,29 @@
 // Общие помощники для страниц + переключатель языка RU/EN
 const I18N = {
   ru: {
+    nav_overview: "Обзор", nav_new: "Новая заявка", nav_all: "Все заявки", nav_queue: "Очередь обработки",
+    nav_reasons: "Причины отказов",
+    b_approved: "Approved", b_rejected: "Rejected", b_review: "Needs review", b_processing: "В обработке",
+    r_INVALID_IMEI: "Неверный IMEI (Луна)", r_PHOTO_OF_SCREEN: "Фото экрана", r_IMEI_MISMATCH: "IMEI не совпадает",
+    r_NO_SERIAL: "Нет наклейки с IMEI", r_CROPPED: "Наклейка обрезана", r_BLURRY_DARK_UNREADABLE: "Размыто / темно / нечитаемо",
+    r_DUPLICATE: "Одно фото в обоих слотах",
+    ov_title: "Обзор", ov_sub: "Сводка по проверкам фото коробок", k_total: "Всего заявок", k_processing_sub: "идёт проверка экрана",
+    ch_daily: "Заявки по дням", ch_received: "Поступило", ch_processed: "Обработано", ch_summary: "Итоги",
+    ch_reasons: "Топ причин отказа", ch_metrics: "Средние метрики", m_fast: "быстрая проверка, с", m_vlm: "проверка экрана, с",
+    m_high: "решений с high confidence", ch_recent: "Последние заявки", all_link: "Все заявки →",
+    col_id: "ID", col_model: "Модель", col_date: "Дата", col_conf: "Уверенность", col_source: "Режим",
+    empty_title: "Пока нет данных", empty_hint: "Отправьте заявку или загрузите пакет — статистика появится здесь.",
+    empty_reasons: "Отказов пока нет", src_single: "Одиночная", src_batch: "Пакет", src_exam: "exam.py", src_import: "Импорт",
+    f_search: "Поиск по ID или IMEI", f_status: "Статус", f_reason: "Причина", f_source: "Режим", f_from: "С даты", f_to: "По дату",
+    any: "Все", reset: "Сбросить", export_xlsx: "⬇ Экспорт в XLSX", found_n: "Найдено: {n}", prev: "← Назад", next: "Вперёд →",
+    card_title: "Заявка №{id}", errors: "Найденные ошибки", timings: "Тайминги", vlm_state: "Проверка экрана",
+    open_review: "Открыть в разборе", open_in_list: "Открыть в списке заявок", close_x: "Закрыть",
+    q_title: "Очередь обработки", q_sub: "Заявки с незавершённой фоновой проверкой на фото экрана. Обновление каждые 5 с.",
+    q_empty: "Очередь пуста", q_empty_hint: "Все заявки обработаны.", q_running: "проверяется", q_waiting: "в очереди",
+    q_pos: "Позиция", q_wait: "Ожидание", rs_title: "Причины отказов", rs_sub: "Разбивка по типам ошибок; клик — список заявок с этой причиной.",
+    rs_share: "Доля от отклонённых", rs_trend: "Динамика", per_day: "по дням", days_n: "{n} дн.", minutes_short: "мин",
+    sc_passed: "пройдена", sc_not_run: "не выполнялась", sc_suspected: "подозрение на экран", sc_failed: "ошибка проверки",
+    sc_ui_detected: "интерфейс телефона найден", conf_high: "high", conf_low: "low",
     nav_register: "Регистрация", nav_batch: "Пакетная проверка", nav_review: "Разбор заявок", nav_settings: "Настройки",
     nav_report: "Отчёт по датасету",
     title_register: "Регистрация устройства", imei_label: "IMEI (15 цифр)", scan_btn: "📷 Считать штрихкод камерой",
@@ -59,6 +82,29 @@ const I18N = {
     ollama_missing: "модель не найдена — выполните ollama pull",
   },
   en: {
+    nav_overview: "Overview", nav_new: "New submission", nav_all: "All submissions", nav_queue: "Processing queue",
+    nav_reasons: "Rejection reasons",
+    b_approved: "Approved", b_rejected: "Rejected", b_review: "Needs review", b_processing: "Processing",
+    r_INVALID_IMEI: "Invalid IMEI (Luhn)", r_PHOTO_OF_SCREEN: "Screen photo", r_IMEI_MISMATCH: "IMEI mismatch",
+    r_NO_SERIAL: "No IMEI label", r_CROPPED: "Label cropped", r_BLURRY_DARK_UNREADABLE: "Blurry / dark / unreadable",
+    r_DUPLICATE: "Same photo in both slots",
+    ov_title: "Overview", ov_sub: "Box photo verification summary", k_total: "Total submissions", k_processing_sub: "screen check running",
+    ch_daily: "Submissions per day", ch_received: "Received", ch_processed: "Processed", ch_summary: "Summary",
+    ch_reasons: "Top rejection reasons", ch_metrics: "Average metrics", m_fast: "fast check, s", m_vlm: "screen check, s",
+    m_high: "high-confidence decisions", ch_recent: "Latest submissions", all_link: "All submissions →",
+    col_id: "ID", col_model: "Model", col_date: "Date", col_conf: "Confidence", col_source: "Mode",
+    empty_title: "No data yet", empty_hint: "Submit a check or upload a batch — statistics will appear here.",
+    empty_reasons: "No rejections yet", src_single: "Single", src_batch: "Batch", src_exam: "exam.py", src_import: "Import",
+    f_search: "Search by ID or IMEI", f_status: "Status", f_reason: "Reason", f_source: "Mode", f_from: "From", f_to: "To",
+    any: "All", reset: "Reset", export_xlsx: "⬇ Export to XLSX", found_n: "Found: {n}", prev: "← Prev", next: "Next →",
+    card_title: "Submission #{id}", errors: "Errors found", timings: "Timings", vlm_state: "Screen check",
+    open_review: "Open in review", open_in_list: "Open in submissions list", close_x: "Close",
+    q_title: "Processing queue", q_sub: "Submissions with an unfinished background screen-photo check. Refreshes every 5 s.",
+    q_empty: "Queue is empty", q_empty_hint: "All submissions are processed.", q_running: "checking", q_waiting: "waiting",
+    q_pos: "Position", q_wait: "Waiting", rs_title: "Rejection reasons", rs_sub: "Breakdown by error type; click to list submissions with this reason.",
+    rs_share: "Share of rejected", rs_trend: "Trend", per_day: "per day", days_n: "{n} days", minutes_short: "min",
+    sc_passed: "passed", sc_not_run: "not run", sc_suspected: "screen suspected", sc_failed: "check failed",
+    sc_ui_detected: "phone UI detected", conf_high: "high", conf_low: "low",
     nav_register: "Register", nav_batch: "Batch check", nav_review: "Review queue", nav_settings: "Settings",
     nav_report: "Dataset report",
     title_register: "Device registration", imei_label: "IMEI (15 digits)", scan_btn: "📷 Scan barcode with camera",
@@ -140,16 +186,40 @@ const VG = {
     root.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = VG.t(el.dataset.i18n); });
     root.querySelectorAll("[data-i18n-ph]").forEach(el => { el.placeholder = VG.t(el.dataset.i18nPh); });
   },
+  // Единый макет: левое меню (на телефоне — сворачиваемое), бренд, RU/EN
   header(active) {
-    const links = [["/", "nav_register"], ["/batch", "nav_batch"], ["/review", "nav_review"], ["/settings", "nav_settings"],
-      ["/reports/eval_report.html", "nav_report"]];
+    const ic = {
+      overview: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
+      new: '<path d="M12 5v14M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="3"/>',
+      batch: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+      list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+      queue: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+      reasons: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    };
+    const nav = [["/", "overview", "nav_overview"], ["/new", "new", "nav_new"], ["/batch", "batch", "nav_batch"],
+      ["/submissions", "list", "nav_all"], ["/queue", "queue", "nav_queue"], ["/reasons", "reasons", "nav_reasons"]];
+    const sub = [["/review", "nav_review"], ["/settings", "nav_settings"], ["/reports/eval_report.html", "nav_report"]];
     const h = document.querySelector("header");
-    h.innerHTML = `<b>VisionGate</b>` + links.map(([href, k]) =>
-      `<a href="${href}" class="${href === active ? "active" : ""}">${VG.t(k)}</a>`).join("") +
+    h.innerHTML =
+      `<a class="brand" href="/"><span class="logo">V</span><span><b>VisionGate</b><small>Photo verification</small></span></a>` +
+      `<button type="button" class="burger" aria-label="menu">☰</button>` +
+      `<nav>${nav.map(([href, i, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">` +
+        `<svg viewBox="0 0 24 24">${ic[i]}</svg>${VG.t(k)}${i === "queue" ? '<span class="count" id="navQueue" hidden></span>' : ""}</a>`).join("")}</nav>` +
+      `<div class="sub">${sub.map(([href, k]) => `<a href="${href}" class="${href === active ? "active" : ""}">${VG.t(k)}</a>`).join("")}` +
       `<span class="lang"><button type="button" data-l="ru" class="${VG.lang === "ru" ? "active" : ""}">RU</button>` +
-      `<button type="button" data-l="en" class="${VG.lang === "en" ? "active" : ""}">EN</button></span>`;
+      `<button type="button" data-l="en" class="${VG.lang === "en" ? "active" : ""}">EN</button></span></div>`;
     h.querySelectorAll(".lang button").forEach(b => b.onclick = () => VG.setLang(b.dataset.l));
+    h.querySelector(".burger").onclick = () => h.classList.toggle("open");
+    // счётчик очереди фоновой проверки в меню
+    fetch("/api/queue").then(r => r.json()).then(q => {
+      const el = document.getElementById("navQueue");
+      if (el && q.rows && q.rows.length) { el.textContent = q.rows.length; el.hidden = false; }
+    }).catch(() => {});
   },
+  maskImei(v) { return !v || v.length < 8 ? (v || "") : v.slice(0, 2) + "x".repeat(v.length - 6) + v.slice(-4); },
+  reasonLabel(code) { return VG.t(`r_${code}`) === `r_${code}` ? code : VG.t(`r_${code}`); },
+  bucketLabel(b) { return VG.t(`b_${b}`); },
+  fmtDate(ts) { return (ts || "").replace("T", " ").slice(0, 16); },
   luhn(s) {
     if (!/^\d+$/.test(s)) return false;
     let t = 0;

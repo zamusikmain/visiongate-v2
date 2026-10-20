@@ -15,6 +15,10 @@ def enqueue(sid: int):
     _q.put(sid)
 
 
+def current_id():
+    return _current["id"]
+
+
 def queue_size() -> int:
     return _q.qsize() + (1 if _current["id"] else 0)
 

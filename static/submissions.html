@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGate · Submissions</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header></header>
+<main class="wide">
+  <div class="page-head">
+    <div><h1 data-i18n="nav_all"></h1><p class="hint" id="found"></p></div>
+    <a class="btn" id="export" data-i18n="export_xlsx"></a>
+  </div>
+  <div class="card">
+    <form class="filters" id="f" onsubmit="return false">
+      <div><label data-i18n="f_search"></label><input type="search" id="q" placeholder="123 / 3528…"></div>
+      <div><label data-i18n="f_status"></label><select id="status"></select></div>
+      <div><label data-i18n="f_reason"></label><select id="reason"></select></div>
+      <div><label data-i18n="f_source"></label><select id="source"></select></div>
+      <div><label data-i18n="f_from"></label><input type="date" id="date_from"></div>
+      <div><label data-i18n="f_to"></label><input type="date" id="date_to"></div>
+      <div><button type="button" id="reset" data-i18n="reset"></button></div>
+    </form>
+  </div>
+  <div class="card" style="padding:0;overflow-x:auto"><div id="table"></div></div>
+  <div class="pager"><span id="pageinfo"></span><button type="button" id="prev" data-i18n="prev"></button>
+    <button type="button" id="next" data-i18n="next"></button></div>
+</main>
+<div class="drawer-bg" id="bg"></div>
+<aside class="drawer" id="drawer"></aside>
+<script src="/static/common.js"></script>
+<script>
+VG.header("/submissions");
+VG.applyI18n();
+const PAGE = 50;
+const REASONS = ["INVALID_IMEI", "PHOTO_OF_SCREEN", "IMEI_MISMATCH", "NO_SERIAL", "CROPPED", "BLURRY_DARK_UNREADABLE", "DUPLICATE"];
+const opt = (v, t) => `<option value="${v}">${VG.esc(t)}</option>`;
+document.querySelector("#status").innerHTML = opt("", VG.t("any")) + ["approved", "rejected", "review", "processing"].map(b => opt(b, VG.bucketLabel(b))).join("");
+document.querySelector("#reason").innerHTML = opt("", VG.t("any")) + REASONS.map(r => opt(r, VG.reasonLabel(r))).join("");
+document.querySelector("#source").innerHTML = opt("", VG.t("any")) + ["single", "batch", "exam", "import"].map(s => opt(s, VG.t("src_" + s))).join("");
+const fields = ["q", "status", "reason", "source", "date_from", "date_to"];
+const params = new URLSearchParams(location.search);
+fields.forEach(k => { if (params.get(k)) document.getElementById(k).value = params.get(k); });
+let offset = 0, total = 0, timer = null;
+
+function query() {
+  const p = new URLSearchParams();
+  fields.forEach(k => { const v = document.getElementById(k).value.trim(); if (v) p.set(k, v); });
+  return p;
+}
+
+async function load() {
+  const p = query();
+  history.replaceState(null, "", "/submissions" + (p.toString() ? "?" + p : ""));
+  document.querySelector("#export").href = "/api/list/export.xlsx?" + p;
+  p.set("limit", PAGE); p.set("offset", offset);
+  const d = await VG.json("/api/list?" + p);
+  total = d.total;
+  document.querySelector("#found").textContent = VG.t("found_n", { n: total });
+  document.querySelector("#pageinfo").textContent = total ? `${offset + 1}–${Math.min(offset + PAGE, total)} / ${total}` : "";
+  document.querySelector("#prev").disabled = offset === 0;
+  document.querySelector("#next").disabled = offset + PAGE >= total;
+  document.querySelector("#table").innerHTML = d.rows.length ? `<table class="tbl"><thead><tr><th>${VG.t("col_id")}</th>
+    <th>${VG.t("col_model")}</th><th>IMEI</th><th>${VG.t("col_date")}</th><th>${VG.t("col_source")}</th><th>${VG.t("col_status")}</th>
+    <th>${VG.t("col_reasons")}</th><th>${VG.t("col_conf")}</th></tr></thead><tbody>` + d.rows.map(r => {
+      const s = r.summary || {};
+      return `<tr data-id="${r.id}"><td>#${r.id}</td><td>${VG.esc(s.model || "—")}</td><td class="mono">${VG.esc(VG.maskImei(r.imei) || "—")}</td>
+        <td>${VG.fmtDate(r.created_at)}</td><td>${VG.t("src_" + r.source)}</td><td>${VG.badge("b-" + r.bucket, VG.bucketLabel(r.bucket))}</td>
+        <td>${(s.reasons || []).map(c => `<span class="chip">${VG.esc(VG.reasonLabel(c))}</span>`).join("") || "—"}</td>
+        <td class="conf-${s.confidence}">${s.confidence || "—"}</td></tr>`;
+    }).join("") + "</tbody></table>" : `<div class="empty"><b>${VG.t("empty_title")}</b>${VG.t("empty_hint")}</div>`;
+  document.querySelectorAll("#table tr[data-id]").forEach(tr => tr.onclick = () => openCard(+tr.dataset.id));
+}
+
+function slotBlock(sid, slot, d, ev, sum) {
+  if (!d) return "";
+  const errs = slot === "device" ? sum.device_errors : sum.scan_errors;
+  const v = (d.vlm || {});
+  const sc = d.screen_check || "not_run";
+  return `<div class="card"><div class="card-title"><h2>${VG.slotName(slot)}</h2>${VG.badge(VG.slotView(d), VG.slotStatus(VG.slotView(d)))}</div>
+    <a href="/api/submissions/${sid}/photo/${slot}" target="_blank"><img src="/api/submissions/${sid}/photo/${slot}" alt="" style="width:100%;border-radius:8px;background:var(--bg)"></a>
+    <dl class="kv" style="margin-top:10px">
+      <dt>${VG.t("recognised_imei")}</dt><dd class="mono">${(d.read_imeis || []).map(VG.esc).join(", ") || "—"}</dd>
+      <dt>${VG.t("barcodes")}</dt><dd class="mono">${((ev || {}).barcodes || []).map(b => VG.esc(b.text)).join(", ") || VG.t("not_read")}</dd>
+      <dt>${VG.t("errors")}</dt><dd>${VG.esc(errs || "OK")}</dd>
+      <dt>${VG.t("vlm_state")}</dt><dd>${VG.t("sc_" + sc)}${v.seconds ? ` · ${v.seconds} ${VG.t("sec")}` : ""}</dd>
+      <dt>${VG.t("timings")}</dt><dd>${ev ? `${VG.t("barcode")} ${ev.timing.barcode} ${VG.t("sec")}, OCR ${ev.timing.ocr} ${VG.t("sec")}` : "—"}</dd>
+    </dl><p class="hint">${VG.esc(VG.pick(d, "message"))}</p></div>`;
+}
+
+async function openCard(id) {
+  const r = await VG.json(`/api/submissions/${id}?full=true`);
+  const res = r.result || {}, sum = { device_errors: "", scan_errors: "" };
+  const lst = await VG.json(`/api/list?q=${id}&limit=5`);
+  const row = (lst.rows || []).find(x => x.id === id) || {};
+  Object.assign(sum, row.summary || {});
+  const dr = document.querySelector("#drawer");
+  dr.innerHTML = `<div class="page-head"><div><h1>${VG.t("card_title", { id })}</h1>
+      <p class="hint">${VG.fmtDate(r.created_at)} · ${VG.t("src_" + (row.source || "single"))}${sum.model ? " · " + VG.esc(sum.model) : ""}</p></div>
+      <button type="button" onclick="closeCard()">${VG.t("close_x")}</button></div>
+    <div class="card"><p>${VG.badge("b-" + (row.bucket || "review"), VG.bucketLabel(row.bucket || "review"), true)}
+      ${sum.confidence ? ` <span class="conf-${sum.confidence}">${VG.t("col_conf")}: ${sum.confidence}</span>` : ""}</p>
+      <p>${VG.esc(VG.pick(r, "message"))}</p>
+      <dl class="kv"><dt>IMEI</dt><dd class="mono">${VG.esc(r.imei || "—")} <small>(${r.imei_source === "entered" ? VG.t("entered_imei") : VG.t("imei_from_photo")})</small></dd>
+        <dt>${VG.t("col_reasons")}</dt><dd>${(sum.reasons || []).map(c => `<span class="chip">${VG.esc(VG.reasonLabel(c))}</span>`).join("") || "—"}</dd>
+        <dt>${VG.t("timings")}</dt><dd>${VG.t("fast_check")}: ${r.fast_seconds ?? "—"} ${VG.t("sec")}${r.vlm_seconds ? ` · ${VG.t("screen_check")}: ${r.vlm_seconds} ${VG.t("sec")}` : ""}</dd></dl>
+      <div class="row" style="margin-top:10px"><a class="btn" href="/s/${id}">${VG.t("submission", { id })}</a>
+        <a class="btn" href="/review">${VG.t("open_review")}</a></div></div>
+    <div class="grid2">${slotBlock(id, "device", (res.slots || {}).device, (res.evidence || {}).device, sum)}
+      ${slotBlock(id, "scan", (res.slots || {}).scan, (res.evidence || {}).scan, sum)}</div>`;
+  dr.classList.add("open"); document.querySelector("#bg").classList.add("open");
+  const p = new URLSearchParams(location.search); p.set("id", id); history.replaceState(null, "", "/submissions?" + p);
+}
+function closeCard() {
+  document.querySelector("#drawer").classList.remove("open"); document.querySelector("#bg").classList.remove("open");
+  const p = new URLSearchParams(location.search); p.delete("id"); history.replaceState(null, "", "/submissions" + (p.toString() ? "?" + p : ""));
+}
+document.querySelector("#bg").onclick = closeCard;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeCard(); });
+fields.forEach(k => document.getElementById(k).addEventListener(k === "q" ? "input" : "change", () => {
+  clearTimeout(timer); timer = setTimeout(() => { offset = 0; load(); }, k === "q" ? 300 : 0);
+}));
+document.querySelector("#reset").onclick = () => { fields.forEach(k => document.getElementById(k).value = ""); offset = 0; load(); };
+document.querySelector("#prev").onclick = () => { offset = Math.max(0, offset - PAGE); load(); };
+document.querySelector("#next").onclick = () => { offset += PAGE; load(); };
+load().then(() => { if (params.get("id")) openCard(+params.get("id")); });
+</script>
+</body>
+</html>
