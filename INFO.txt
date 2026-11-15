@@ -1,0 +1,9 @@
+Локально (для показа с ноута и телефона в той же Wi-Fi):
+
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+
+Открывай https://localhost:8443 на ноуте или https://IP-ноутбука:8443 с телефона.
+
+Ссылка в интернет (если нужно дать доступ снаружи):
+
+powershell -ExecutionPolicy Bypass -File .\tunnel.ps1 -Password "<your-password>"
